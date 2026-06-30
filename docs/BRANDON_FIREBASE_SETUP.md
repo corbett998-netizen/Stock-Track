@@ -29,6 +29,9 @@
 ## Part 5 — (Later) Firestore for real data
 - When we're ready to switch Stock-Track from mock data to real live data: Firebase console → **"Firestore Database"** → **"Create database"** → start in test mode (we'll add proper rules) → pick a region near you. I then wire the app to it (one small change at the data layer — the screens don't change). Free tier is plenty to start.
 
+## Part 6 — Your owner-comms chat (automatic — nothing extra for you)
+- This SAME Firebase project will also host your **owner-to-orchestrator chat** (how you'll direct your AI dev team from inside the app, like Pete does) — using its own separate collections in your project. **You don't do anything extra for this** in setup; once your project + Auth exist, the orchestrator provisions the chat side automatically. It stays entirely in YOUR project (never Blueprint Fitness's).
+
 ## What I do once you've done Parts 1–4
 - Put your `google-services.json` into the app (no UI changes).
 - Set up a Stock-Track ship script pinned to **your** project + app id → send a real build to the **stocktrack-testers** group (proper pipeline, not a chat file).
