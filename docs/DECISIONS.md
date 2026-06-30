@@ -9,6 +9,8 @@
 
 - **First product direction received** — Pete 2026-06-30 17:53. ✅ CAPTURED: product CORRECTED to **HVAC/electrical equipment inventory + tracking app** (NOT stock-trading), cloud-based, Flutter iOS + Android. 3 reference screenshots (Dashboard / Inventory / Installation-History, "StockTrack Warehouse" style) inspected + saved durably to `references/`. OWNER_VISION updated. Visual references, not final requirements.
 
+- **Distribution pipeline PLAN** - DIRECTED Pete 20:17 (Stock-Track needs its OWN clean build/test/distribution path, not chat-file-download forever). EXECUTING via lane a50715105 -> `docs/working/JUN30_stocktrack_distribution_plan.md`: reuse BP PATTERN not config/secrets; separate app-id(✓)/icon/Firebase-App-Dist/keystore/versioning/tester-group/dogfood; graduation prereqs (Brandon's Firebase + keystore + ship script -> Brandon's project). Chat-file-download = TEMPORARY first-mock transport only. PLAN ONLY.
+
 ## AWAITING-OWNER-DECISION (asked; needs the owner's call)
 - 8 open questions to move from references → buildable spec — see `OWNER_VISION.md` "Open questions for the owner" (backend/cloud choice, scanning method, multi-user/roles, recall tracking, truck-as-location, customer records, greenfield-or-existing, first slice + timeline).
 
