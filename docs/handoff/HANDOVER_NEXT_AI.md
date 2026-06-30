@@ -3,7 +3,7 @@
 > Session-to-session handoff so context survives. Mirrors the Blueprint Fitness handover schema (Status / What's Next / Open Questions / Don't-Revert Invariants / Recent Session Log). SEPARATE project — keep its context out of Blueprint Fitness.
 
 ## Status
-Project space SET UP 2026-06-30 (separate repo at `/mnt/c/dev/Brandons_App`, adjacent to Blueprint Fitness). Documentation structure only — **no product code yet**. Awaiting the owner's first product direction.
+Project space SET UP 2026-06-30 (separate repo at `/mnt/c/dev/Brandons_App`, adjacent to Blueprint Fitness). First product direction RECEIVED 2026-06-30: it's an **HVAC/electrical equipment inventory + tracking app** (cloud, Flutter iOS+Android) — NOT stock-trading. 3 visual reference screenshots saved to `references/`. OWNER_VISION + DECISIONS updated. Still no product code; next = resolve the 8 open questions → first buildable slice. A dedicated sub-orchestrator should now be stood up to own it.
 
 ## What's Next
 - Owner (Pete, relaying for Brandon) brings the first product direction → fill `OWNER_VISION.md`.

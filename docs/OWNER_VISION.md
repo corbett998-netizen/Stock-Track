@@ -1,32 +1,44 @@
-# Brandon's App — Owner Vision / Product Intent (STARTER)
+# Brandon's App — Owner Vision / Product Intent
 
-> The product compass for Brandon's App. Owner-level intent lives here, separate from any task tracking. To be filled with the owner's direction — this is a structured starter, not the final vision.
+> The product compass for Brandon's App. Owner-level intent, separate from task tracking. Filled from the owner's first direction (2026-06-30); refine as more direction lands. (Earlier "stock-trading" assumption was WRONG — corrected below.)
 
 ## What it is (one line)
-_TBD — a stock-coding / trading-related app. Owner to define the precise product._
+An **HVAC / electrical equipment INVENTORY + TRACKING app** — cloud-based, mobile-first, Flutter (iOS + Android). Reference branding: "StockTrack — Warehouse." (NOT a stock-trading app.)
+
+## Core purpose
+Track HVAC/electrical/equipment stock across its lifecycle: **warehouse → installer truck → customer installation site**, with **real-time cloud updates, low-stock alerts, customer install history, and recall tracking.**
 
 ## Who it's for
-_TBD — Brandon (the buddy) is the product owner/originator; Pete is coordinating the build._
+Brandon (product owner/originator; HVAC/electrical trade context); Pete is coordinating the build. End users: warehouse/admin + installers in the field.
 
-## North Star — what this app is trying to become
-_TBD._
+## North Star
+A clean, real-time inventory + install-tracking app a trade business actually runs on — always-accurate stock from warehouse to truck to job site, with fast scanning and clear low-stock visibility.
 
-## Core problem it solves
-_TBD._
+## Core screens (from the reference visuals — see `references/JUN30_visual_direction.md`)
+- **Dashboard** — metric cards (Products / Total Units / Low Stock / Installed Today) + Low Stock Alerts + Recent Installations.
+- **Inventory** — list with product, barcode/SKU/serial, category, shelf/location, stock status, quantity, min-stock threshold, and edit/delete/restock actions; search + Low filter; Add.
+- **Scan** — barcode scanning (stock-in / scan-out to a truck/job).
+- **Installers** — people directory.
+- **History** — installation history (product + installer + customer/address, grouped by date, searchable).
+- Cross-cutting: low-stock alerts, recall tracking, real-time cloud sync.
 
-## Non-negotiable product principles
-_TBD (e.g. data accuracy, trust, latency, compliance — to be defined; trading/financial apps carry real correctness + regulatory weight, capture those constraints here early)._
+## Visual direction
+Dark warehouse/admin aesthetic; blue primary accent; orange = low-stock/alert; green = in-stock. Left-side nav on desktop/tablet → adapts to bottom-nav/drawer on mobile (the product is a Flutter PHONE app first; the references are a desktop admin layout conveying style + shape).
 
-## Active product bets / direction
-_TBD._
+## Non-negotiable product principles (to confirm/expand with owner)
+- **Stock accuracy + real-time sync** is the whole point — the data must be trustworthy and current across devices.
+- Fast in-the-field scanning (installers on a truck/site).
+- Clear low-stock + reorder visibility.
 
-## Open questions for the owner (to begin defining the app)
-1. Whose app is it / who's the end user, and what's the single most important thing it must do?
-2. Is it analysis/research, paper-trading, live brokerage execution, education, signals/alerts, portfolio tracking, or something else? (This drives the entire architecture + any regulatory/compliance weight.)
-3. Platform: mobile (iOS/Android), web, desktop, or backend/service?
-4. Any data sources / brokerage APIs / market-data providers already in mind?
-5. Any existing code, designs, or mockups Brandon already has?
-6. Timeline + how hands-on Pete vs Brandon will be.
+## Open questions for the owner (to move from references → buildable spec)
+1. Backend/cloud: any preference (e.g. Firebase, matching the harness pattern) or existing infra?
+2. Scanning: phone-camera barcode/QR, or dedicated scanner hardware?
+3. Multi-user / roles: warehouse admin vs installer permissions? One company or multi-tenant?
+4. Recall tracking — how should it work (flag a product/lot, notify, trace installs)?
+5. Truck/van as a stock location (transfer warehouse→truck→site) — is that an explicit "location" in the model?
+6. Customer records — how much (name/address/install history), any privacy constraints?
+7. Does Brandon have any existing code/data/brand, or is this greenfield from these references?
+8. Priority first slice to build (e.g. Inventory + Dashboard + Scan) and rough timeline.
 
 ## Mockups / visual references
-_None yet. (Same durable-mockup discipline as Blueprint Fitness can apply once there are any.)_
+3 reference screenshots saved in `references/screenshots/` (dashboard / inventory / installation-history), paired with context in `references/JUN30_visual_direction.md`. These are visual references, not final requirements.
