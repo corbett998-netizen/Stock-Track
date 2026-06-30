@@ -1,8 +1,10 @@
-# Brandon's App (working name)
+# Stock-Track — HVAC Warehouse Inventory & Install Tracking
 
-A stock-coding / trading-related app. **Separate project** — its own repo, own source-of-truth, own decisions, own agents. **NOT a Blueprint Fitness feature.**
+> GitHub repo: `corbett998-netizen/Stock-Track` · "HVAC warehouse manager". Internal working name during setup: "Brandon's App".
 
-> Working name only ("Brandon's App"). Owner (Pete) will bring the real product direction; this repo is the clean, separate space set up to receive it. **No product code yet** — documentation structure only.
+An **HVAC / electrical equipment INVENTORY + TRACKING app** — cloud-based, mobile-first, **Flutter (iOS + Android)**. Tracks equipment stock across **warehouse → installer truck → customer install site**, with real-time cloud sync, low-stock alerts, install history, and recall tracking. **Separate project** — its own repo, own source-of-truth, own decisions, own agents. **NOT a Blueprint Fitness feature.**
+
+> Product direction received 2026-06-30 (see `docs/OWNER_VISION.md` + the reference screenshots in `docs/references/`). **No product code yet** — documentation structure only so far.
 
 ## ⛔ Separation boundary (hard rule)
 - This project lives at `/mnt/c/dev/Brandons_App` — **adjacent to**, and **fully independent from**, Blueprint Fitness (`/mnt/c/dev/blueprint-fitness-app`).
