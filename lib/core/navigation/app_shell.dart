@@ -1,0 +1,124 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../features/dashboard/dashboard_screen.dart';
+import '../../features/inventory/inventory_screen.dart';
+import '../../features/scan/scan_screen.dart';
+import '../theme/app_colors.dart';
+import 'nav_providers.dart';
+
+/// Bottom-nav shell hosting the 3 slice-1 tabs (Dashboard · Inventory · Scan).
+/// History / Installers are reserved for slice 2 and intentionally NOT wired as
+/// dead tabs. Tabs live in an [IndexedStack] so each keeps its state (and its
+/// live stream subscription) when switching.
+class AppShell extends ConsumerWidget {
+  const AppShell({super.key});
+
+  static const _tabs = [
+    DashboardScreen(),
+    InventoryScreen(),
+    ScanScreen(),
+  ];
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final index = ref.watch(selectedTabProvider);
+
+    return Scaffold(
+      appBar: AppBar(
+        titleSpacing: 16,
+        title: const _StockTrackBrand(),
+      ),
+      body: IndexedStack(index: index, children: _tabs),
+      bottomNavigationBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const _FooterCue(),
+          NavigationBar(
+            selectedIndex: index,
+            onDestinationSelected: (i) =>
+                ref.read(selectedTabProvider.notifier).state = i,
+            destinations: const [
+              NavigationDestination(
+                icon: Icon(Icons.dashboard_outlined),
+                selectedIcon: Icon(Icons.dashboard),
+                label: 'Dashboard',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.inventory_2_outlined),
+                selectedIcon: Icon(Icons.inventory_2),
+                label: 'Inventory',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.qr_code_scanner),
+                selectedIcon: Icon(Icons.qr_code_scanner),
+                label: 'Scan',
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The StockTrack brand lockup (blue tile + name + "Warehouse"), as in the refs.
+class _StockTrackBrand extends StatelessWidget {
+  const _StockTrackBrand();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: AppColors.primaryBlue,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: const Icon(Icons.warehouse_outlined, size: 20, color: Colors.white),
+        ),
+        const SizedBox(width: 10),
+        const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'StockTrack',
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                height: 1.1,
+              ),
+            ),
+            Text(
+              'Warehouse',
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 11, height: 1.1),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _FooterCue extends StatelessWidget {
+  const _FooterCue();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      color: AppColors.surface,
+      padding: const EdgeInsets.only(top: 6, bottom: 4),
+      child: const Text(
+        'v1.0  ·  Real-time sync',
+        textAlign: TextAlign.center,
+        style: TextStyle(color: AppColors.textFaint, fontSize: 11),
+      ),
+    );
+  }
+}
