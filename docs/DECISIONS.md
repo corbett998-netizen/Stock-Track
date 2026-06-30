@@ -11,6 +11,8 @@
 
 - **Distribution pipeline PLAN** - DIRECTED Pete 20:17 (Stock-Track needs its OWN clean build/test/distribution path, not chat-file-download forever). ✅ DONE (lane a50715105, `docs/working/JUN30_stocktrack_distribution_plan.md` 7f2906f7, pushed + delivered). 4-stage graduation; guardrail = every ship cmd pinned to Brandon's project/app (can't touch BP); finding = tester pipeline needs only Brandon's Firebase + app-registered, NOT the cloud-data swap. ⛔ UNLOCK for distribution graduation AND real-data = the same one thing: Brandon's OWN Firebase project (orch offered Pete the setup walkthrough).
 
+- **Owner-comms HARNESS plan** - DIRECTED Pete 20:37 (Brandon needs his OWN owner-comms/dev-chat harness to operate as a non-coder, same capability as BP, never BP infra). EXECUTING via lane a44fe78d -> `docs/working/JUN30_stocktrack_harness_plan.md`: 7 areas (need-it / minimum / reuse-pattern-not-config / form[in-app vs local vs doc vs staged] / backend[mock-vs-Brandon-Firebase, same-project-separate-collection vs isolated] / separation-list / next-APK-sequence). Recurring unlock = Brandon's Firebase (real in-app chat needs Firestore). PLAN ONLY.
+
 ## AWAITING-OWNER-DECISION (asked; needs the owner's call)
 - 8 open questions to move from references → buildable spec — see `OWNER_VISION.md` "Open questions for the owner" (backend/cloud choice, scanning method, multi-user/roles, recall tracking, truck-as-location, customer records, greenfield-or-existing, first slice + timeline).
 
