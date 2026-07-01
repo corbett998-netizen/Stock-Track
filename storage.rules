@@ -5,15 +5,25 @@ rules_version = '2';
 // Deploy with:
 //   firebase deploy --only storage --project easy-stock-track
 //
-// Covers report screenshots. Layout (mirrors ScreenshotUploadService):
-//   stockIssueReports/{uid}/{epochMillis}_{index}.{ext}
-// The owner (anonymous UID) reads + writes ONLY their own screenshots. The
-// orchestrator downloads them via the Admin SDK, which bypasses these rules.
+// Covers report screenshots + chat-image media. Layouts (mirror the upload seams):
+//   stockIssueReports/{uid}/{epochMillis}_{index}.{ext}   (ScreenshotUploadService)
+//   orchestratorChat/{uid}/media/{fileName}               (ChatUploadService)
+// The owner (anonymous UID) reads + writes ONLY their own files. The orchestrator
+// downloads them via the Admin SDK, which bypasses these rules.
+//
+// NOTE: Storage stays OFF in easy-stock-track for the first proof (the app gates
+// uploads behind kHarnessStorageEnabled). These rules are committed READY so the
+// chat-image path can't hit default-deny the moment Brandon enables Storage.
 // =============================================================================
 service firebase.storage {
   match /b/{bucket}/o {
 
     match /stockIssueReports/{uid}/{fileName} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // Chat-image media the owner sends into the orchestrator thread.
+    match /orchestratorChat/{uid}/media/{fileName} {
       allow read, write: if request.auth != null && request.auth.uid == uid;
     }
 

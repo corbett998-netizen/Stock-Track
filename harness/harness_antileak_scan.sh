@@ -53,6 +53,7 @@ harness/harness_config.js
 harness/gen_app_config.js
 harness/project.config.json
 scripts/stocktrack_chat.js
+scripts/stocktrack_workflow_status.js
 scripts/bp_guard.js
 firestore.rules
 storage.rules
@@ -66,6 +67,7 @@ is_excluded() {
     harness/harness_antileak_scan.sh) return 0 ;;  # contains the forbidden patterns by definition
     harness/project.config.schema.json) return 0 ;;
     scripts/bp_guard.js) return 0 ;;               # the BP-abort blocklist — must name BP literals to forbid them
+    scripts/stocktrack_ship.sh) return 0 ;;        # ship GUARDRAIL — names BP literals to ABORT if the wrong project is targeted
     *) return 1 ;;
   esac
 }

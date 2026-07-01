@@ -2,6 +2,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../../../harness/harness_config.g.dart';
 import '../../dev_gate.dart';
 
 /// Resolves report screenshots at SUBMIT time (nothing is touched while drafting, so
@@ -44,7 +45,10 @@ class ScreenshotUploadService {
       try {
         final store = storage ?? FirebaseStorage.instance;
         final ext = _extFor(contentType);
-        final path = 'stockIssueReports/$uid/${millis}_$i.$ext';
+        // Config-driven collection prefix — a framework module must not hardcode an
+        // app-specific collection name (matches the chat upload path).
+        final path =
+            '${HarnessConfig.reportsCollection}/$uid/${millis}_$i.$ext';
         final ref = store.ref(path);
         await ref.putData(data, SettableMetadata(contentType: contentType));
         final url = await ref.getDownloadURL();

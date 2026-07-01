@@ -286,6 +286,40 @@ void main() {
     });
   });
 
+  group('harnessEntryBadgeCount (merged puck badge — G2)', () {
+    test('merges open reports + ready-to-test check-items (no overlap)', () {
+      final reports = [
+        Report.fromMap('a', {'note': 'a', 'status': 'new'}, createdAtMs: 0),
+        Report.fromMap('b', {
+          'note': 'b',
+          'status': 'in_progress',
+        }, createdAtMs: 0),
+        Report.fromMap('c', {
+          'note': 'c',
+          'status': 'fixed',
+          'awaitingVerification': true,
+        }, createdAtMs: 0), // ready-to-test (NOT counted as open)
+        Report.fromMap('d', {
+          'note': 'd',
+          'status': 'fixed',
+        }, createdAtMs: 0), // resolved
+      ];
+      expect(harnessEntryBadgeCount(reports), 3); // 2 open + 1 ready
+    });
+    test('zero when nothing needs the owner', () {
+      expect(harnessEntryBadgeCount(const []), 0);
+      expect(
+        harnessEntryBadgeCount([
+          Report.fromMap('x', {
+            'note': 'x',
+            'status': 'wont_fix',
+          }, createdAtMs: 0),
+        ]),
+        0,
+      );
+    });
+  });
+
   group('agentsEngagedCount (Chunk 6 — N agents engaged)', () {
     test('reads an engaged int', () {
       expect(agentsEngagedCount({'engaged': 3}), 3);
@@ -397,11 +431,14 @@ void main() {
         await repo.setManualResolved(bugId, value: true);
         var r = (await snapshot(repo)).firstWhere((x) => x.id == bugId);
         expect(r.effectiveStatus, 'fixed');
-        // Pick a non-resolved status from the dropdown → must clear the stale tick.
+        // Pick a non-resolved status from the dropdown → routes through the canonical
+        // reopened field-set (G5): clears the stale tick + verify flags, flags orch.
         await repo.updateStatus(bugId, status: 'new');
         r = (await snapshot(repo)).firstWhere((x) => x.id == bugId);
         expect(r.manualResolved, isFalse);
         expect(r.effectiveStatus, 'new');
+        expect(r.flaggedForOrchestrator, isTrue);
+        expect(r.verifiedByUser, isFalse);
       },
     );
   });

@@ -201,19 +201,11 @@ class _HarnessEntryBadge extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final uid = ref.watch(ownerUidProvider).valueOrNull;
     if (uid == null) return const SizedBox.shrink();
+    // Merged "what needs me" count = open reports + ready-to-test check-items (the
+    // parity map wants a MERGED badge). See harnessEntryBadgeCount.
     final count = ref
         .watch(ownerReportsProvider(uid))
-        .maybeWhen(
-          data: (reports) => reports
-              .where(
-                (r) =>
-                    r.status != 'fixed' &&
-                    r.status != 'wont_fix' &&
-                    !r.manualResolved,
-              )
-              .length,
-          orElse: () => 0,
-        );
+        .maybeWhen(data: harnessEntryBadgeCount, orElse: () => 0);
     if (count <= 0) return const SizedBox.shrink();
     final label = count > 99 ? '99+' : '$count';
     return Container(

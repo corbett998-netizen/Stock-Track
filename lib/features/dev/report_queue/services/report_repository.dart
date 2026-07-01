@@ -164,12 +164,15 @@ class FirebaseReportRepository implements ReportRepository {
   @override
   Future<void> updateStatus(String reportId, {required String status}) {
     final resolvedLike = status == 'fixed' || status == 'wont_fix';
-    // Reopen bug fix: picking a non-resolved status must clear the stale
-    // manual-resolved tick, else effectiveStatus still reads 'fixed' and the row
-    // contradicts the dropdown / can't be reopened.
+    if (resolvedLike) {
+      return _update(reportId, <String, dynamic>{'status': status});
+    }
+    // Reopen: build from the CANONICAL reopened field-set (clears the stale
+    // manual-resolved tick etc.) so the dropdown reopen and the dogfood
+    // "Still broken" write stay in lockstep; keep the owner's chosen status.
     return _update(reportId, <String, dynamic>{
+      ...reopenedFields(),
       'status': status,
-      if (!resolvedLike) 'manualResolved': false,
     });
   }
 
@@ -322,14 +325,21 @@ class MockReportRepository implements ReportRepository {
   @override
   Future<void> updateStatus(String reportId, {required String status}) async {
     final resolvedLike = status == 'fixed' || status == 'wont_fix';
-    // Reopen bug fix (mock parity): a non-resolved status clears the stale tick.
+    // Mirror the canonical reopened field-set (see FirebaseReportRepository
+    // .reopenedFields): a non-resolved status clears the stale tick + verify flags
+    // and flags the orchestrator; keep the owner's chosen status.
     _replace(
       reportId,
-      (r) => _copy(
-        r,
-        status: status,
-        manualResolved: resolvedLike ? r.manualResolved : false,
-      ),
+      (r) => resolvedLike
+          ? _copy(r, status: status)
+          : _copy(
+              r,
+              status: status,
+              manualResolved: false,
+              flagged: true,
+              verifiedByUser: false,
+              awaitingVerification: false,
+            ),
     );
   }
 

@@ -71,6 +71,21 @@ final agentStatusProvider = FutureProvider<Map<String, dynamic>?>((ref) async {
   return ref.watch(chatRepositoryProvider).readAgentStatus();
 });
 
+/// The MERGED "what needs me" count for the floating-entry badge = open reports +
+/// ready-to-test check-items. The two sets never overlap (check-items are status
+/// 'fixed'), so a plain sum is correct. Chat-unread folds in when that stream is
+/// wired. Pure so the badge behaviour is unit-testable.
+int harnessEntryBadgeCount(List<Report> reports) {
+  final open = reports
+      .where(
+        (r) =>
+            r.status != 'fixed' && r.status != 'wont_fix' && !r.manualResolved,
+      )
+      .length;
+  final readyToTest = reports.where((r) => r.awaitingVerification).length;
+  return open + readyToTest;
+}
+
 /// The "N agents engaged" count derived from [agentStatusProvider] — reads an
 /// `engaged` int or the length of an `agents` list; 0 when nothing is published.
 int agentsEngagedCount(Map<String, dynamic>? status) {
