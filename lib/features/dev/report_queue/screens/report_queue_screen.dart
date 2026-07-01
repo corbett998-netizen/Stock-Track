@@ -40,33 +40,44 @@ class _ReportQueueScreenState extends ConsumerState<ReportQueueScreen> {
     final reportsAsync = ref.watch(ownerReportsProvider(widget.uid));
     return Scaffold(
       backgroundColor: HarnessTheme.background,
+      // Keyboard (comment composer inside a card) shrinks the body; the bottom
+      // SafeArea keeps the last card + composer clear of the Android nav bar (§7).
+      resizeToAvoidBottomInset: true,
       appBar: AppBar(
         title: const Text('Report queue'),
         backgroundColor: HarnessTheme.panel,
         actions: [
           TextButton.icon(
             onPressed: _poked ? null : _poke,
-            icon: Icon(_poked ? Icons.check : Icons.notifications_active_outlined,
-                size: 18, color: HarnessTheme.accent),
-            label: Text(_poked ? 'Poked' : 'Poke',
-                style: TextStyle(color: HarnessTheme.accent)),
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          ReportFilterBar(
-            selected: _filter,
-            onSelected: (f) => setState(() => _filter = f),
-          ),
-          Expanded(
-            child: reportsAsync.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => _errorState(e),
-              data: (reports) => _list(reports),
+            icon: Icon(
+              _poked ? Icons.check : Icons.notifications_active_outlined,
+              size: 18,
+              color: HarnessTheme.accent,
+            ),
+            label: Text(
+              _poked ? 'Poked' : 'Poke',
+              style: TextStyle(color: HarnessTheme.accent),
             ),
           ),
         ],
+      ),
+      body: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            ReportFilterBar(
+              selected: _filter,
+              onSelected: (f) => setState(() => _filter = f),
+            ),
+            Expanded(
+              child: reportsAsync.when(
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (e, _) => _errorState(e),
+                data: (reports) => _list(reports),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -105,13 +116,19 @@ class _ReportQueueScreenState extends ConsumerState<ReportQueueScreen> {
           children: [
             const Icon(Icons.cloud_off, color: Colors.white38, size: 40),
             const SizedBox(height: 12),
-            const Text("Couldn't load reports.",
-                style: TextStyle(
-                    color: Colors.white70, fontWeight: FontWeight.w600)),
+            const Text(
+              "Couldn't load reports.",
+              style: TextStyle(
+                color: Colors.white70,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
             const SizedBox(height: 6),
-            Text('$error',
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white38, fontSize: 12)),
+            Text(
+              '$error',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white38, fontSize: 12),
+            ),
           ],
         ),
       ),

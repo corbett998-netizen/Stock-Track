@@ -22,8 +22,8 @@ class OrchestratorChatScreen extends ConsumerStatefulWidget {
       _OrchestratorChatScreenState();
 }
 
-class _OrchestratorChatScreenState
-    extends ConsumerState<OrchestratorChatScreen> with WidgetsBindingObserver {
+class _OrchestratorChatScreenState extends ConsumerState<OrchestratorChatScreen>
+    with WidgetsBindingObserver {
   late final ChatMessageController _messages;
   late final ChatComposeController _compose;
   final ScrollController _scroll = ScrollController();
@@ -65,13 +65,14 @@ class _OrchestratorChatScreenState
 
   void _snack(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   bool _isNearBottom() {
     if (!_scroll.hasClients) return true;
-    return _scroll.position.pixels >=
-        _scroll.position.maxScrollExtent - 120;
+    return _scroll.position.pixels >= _scroll.position.maxScrollExtent - 120;
   }
 
   void _autoScroll() {
@@ -96,21 +97,31 @@ class _OrchestratorChatScreenState
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: HarnessTheme.background,
+      // Keyboard shrinks the body so the composer rides above it (default, set
+      // explicitly to document the intent — see HARNESS_PARITY_MAP §7).
+      resizeToAvoidBottomInset: true,
       appBar: AppBar(
         title: const Text('Orchestrator chat'),
         backgroundColor: HarnessTheme.panel,
       ),
-      body: Column(
-        children: [
-          Expanded(child: _body()),
-          if (_messages.hasUnreadBelow) _newMessagesPill(),
-          ChatComposer(
-            compose: _compose,
-            controller: _input,
-            focusNode: _focus,
-            accent: HarnessTheme.accent,
-          ),
-        ],
+      // top:false — the AppBar already consumes the top status-bar inset; only the
+      // bottom nav/gesture inset needs padding so the composer clears the Android
+      // nav bar (keyboard closed) and sits snug above the keyboard (open, where the
+      // bottom SafeArea auto-collapses to 0).
+      body: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            Expanded(child: _body()),
+            if (_messages.hasUnreadBelow) _newMessagesPill(),
+            ChatComposer(
+              compose: _compose,
+              controller: _input,
+              focusNode: _focus,
+              accent: HarnessTheme.accent,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -176,7 +187,10 @@ class _OrchestratorChatScreenState
             const SizedBox(height: 12),
             const Text(
               "Couldn't load the chat.",
-              style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                color: Colors.white70,
+                fontWeight: FontWeight.w600,
+              ),
             ),
             const SizedBox(height: 6),
             Text(

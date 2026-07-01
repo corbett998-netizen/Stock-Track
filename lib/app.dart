@@ -9,8 +9,20 @@ import 'features/dev/harness_overlay.dart';
 ///
 /// [HarnessOverlay] adds the dev-gated owner/operator harness entry (draggable FAB
 /// → command center). In a release build it is inert — the harness never mounts.
+///
+/// The overlay is mounted at the [MaterialApp.builder] seam (NOT inside `home:`) so
+/// it wraps the Navigator's output and floats above EVERY pushed route — it can
+/// never be covered by page content or a full-screen route (HARNESS_PARITY_MAP
+/// Chunk 1). Because the overlay now sits ABOVE the Navigator, it pushes the
+/// command-center route through a shared [navigatorKey] rather than the (absent)
+/// ancestor Navigator of its own context.
 class StockTrackApp extends StatelessWidget {
   const StockTrackApp({super.key});
+
+  /// Shared handle to the app Navigator — the overlay lives above it, so it pushes
+  /// harness routes via this key.
+  static final GlobalKey<NavigatorState> navigatorKey =
+      GlobalKey<NavigatorState>();
 
   @override
   Widget build(BuildContext context) {
@@ -18,7 +30,12 @@ class StockTrackApp extends StatelessWidget {
       title: 'Stock-Track',
       debugShowCheckedModeBanner: false,
       theme: buildStockTrackTheme(),
-      home: const HarnessOverlay(child: AppShell()),
+      navigatorKey: navigatorKey,
+      builder: (context, child) => HarnessOverlay(
+        navigatorKey: navigatorKey,
+        child: child ?? const SizedBox.shrink(),
+      ),
+      home: const AppShell(),
     );
   }
 }

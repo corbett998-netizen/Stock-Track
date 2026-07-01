@@ -15,7 +15,8 @@ class ReportCaptureScreen extends ConsumerStatefulWidget {
   final String uid;
 
   @override
-  ConsumerState<ReportCaptureScreen> createState() => _ReportCaptureScreenState();
+  ConsumerState<ReportCaptureScreen> createState() =>
+      _ReportCaptureScreenState();
 }
 
 class _ReportCaptureScreenState extends ConsumerState<ReportCaptureScreen> {
@@ -37,7 +38,10 @@ class _ReportCaptureScreenState extends ConsumerState<ReportCaptureScreen> {
       _snack('Max $_maxShots screenshots.');
       return;
     }
-    final picked = await _picker.pickMultiImage(imageQuality: 85, maxWidth: 1600);
+    final picked = await _picker.pickMultiImage(
+      imageQuality: 85,
+      maxWidth: 1600,
+    );
     if (picked.isEmpty) return;
     setState(() {
       _shots.addAll(picked.take(_maxShots - _shots.length));
@@ -52,7 +56,9 @@ class _ReportCaptureScreenState extends ConsumerState<ReportCaptureScreen> {
     }
     setState(() => _submitting = true);
     try {
-      await ref.read(reportRepositoryProvider).fileReport(
+      await ref
+          .read(reportRepositoryProvider)
+          .fileReport(
             uid: widget.uid,
             note: note,
             screenshots: List<XFile>.unmodifiable(_shots),
@@ -77,77 +83,96 @@ class _ReportCaptureScreenState extends ConsumerState<ReportCaptureScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: HarnessTheme.background,
+      // Keyboard (note field) shrinks the body; the bottom SafeArea keeps the
+      // File-report button clear of the Android nav bar (§7).
+      resizeToAvoidBottomInset: true,
       appBar: AppBar(
         title: const Text('File a report'),
         backgroundColor: HarnessTheme.panel,
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          const Text('What happened?',
-              style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _note,
-            minLines: 4,
-            maxLines: 10,
-            style: const TextStyle(color: Colors.white, fontSize: 15),
-            decoration: InputDecoration(
-              hintText: 'Describe the bug or feedback…',
-              hintStyle: const TextStyle(color: Colors.white38),
-              filled: true,
-              fillColor: Colors.white.withValues(alpha: 0.05),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
+      body: SafeArea(
+        top: false,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            const Text(
+              'What happened?',
+              style: TextStyle(
+                color: Colors.white70,
+                fontWeight: FontWeight.w600,
               ),
             ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              OutlinedButton.icon(
-                onPressed: _submitting ? null : _pick,
-                icon: const Icon(Icons.add_photo_alternate_outlined, size: 18),
-                label: const Text('Add screenshot'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white70,
-                  side: BorderSide(color: Colors.white.withValues(alpha: 0.2)),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _note,
+              minLines: 4,
+              maxLines: 10,
+              style: const TextStyle(color: Colors.white, fontSize: 15),
+              decoration: InputDecoration(
+                hintText: 'Describe the bug or feedback…',
+                hintStyle: const TextStyle(color: Colors.white38),
+                filled: true,
+                fillColor: Colors.white.withValues(alpha: 0.05),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
                 ),
               ),
-              const SizedBox(width: 10),
-              Text('${_shots.length}/$_maxShots',
-                  style: const TextStyle(color: Colors.white38)),
-            ],
-          ),
-          if (_shots.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
+            ),
+            const SizedBox(height: 16),
+            Row(
               children: [
-                for (int i = 0; i < _shots.length; i++) _thumb(i),
+                OutlinedButton.icon(
+                  onPressed: _submitting ? null : _pick,
+                  icon: const Icon(
+                    Icons.add_photo_alternate_outlined,
+                    size: 18,
+                  ),
+                  label: const Text('Add screenshot'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white70,
+                    side: BorderSide(
+                      color: Colors.white.withValues(alpha: 0.2),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  '${_shots.length}/$_maxShots',
+                  style: const TextStyle(color: Colors.white38),
+                ),
               ],
             ),
-          ],
-          const SizedBox(height: 24),
-          FilledButton.icon(
-            onPressed: _submitting ? null : _submit,
-            icon: _submitting
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Colors.white))
-                : const Icon(Icons.send),
-            label: Text(_submitting ? 'Filing…' : 'File report'),
-            style: FilledButton.styleFrom(
-              backgroundColor: HarnessTheme.accent,
-              foregroundColor: Colors.black,
-              padding: const EdgeInsets.symmetric(vertical: 14),
+            if (_shots.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [for (int i = 0; i < _shots.length; i++) _thumb(i)],
+              ),
+            ],
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              onPressed: _submitting ? null : _submit,
+              icon: _submitting
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.send),
+              label: Text(_submitting ? 'Filing…' : 'File report'),
+              style: FilledButton.styleFrom(
+                backgroundColor: HarnessTheme.accent,
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -183,8 +208,9 @@ class _ReportCaptureScreenState extends ConsumerState<ReportCaptureScreen> {
                 backgroundColor: Colors.black54,
                 child: Icon(Icons.close, size: 14, color: Colors.white),
               ),
-              onPressed:
-                  _submitting ? null : () => setState(() => _shots.removeAt(i)),
+              onPressed: _submitting
+                  ? null
+                  : () => setState(() => _shots.removeAt(i)),
             ),
           ),
         ],
