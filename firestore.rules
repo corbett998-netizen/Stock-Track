@@ -1,0 +1,58 @@
+rules_version = '2';
+
+// =============================================================================
+// Stock-Track owner/operator HARNESS security rules — for Brandon's project
+// (easy-stock-track). Deploy with:
+//   firebase deploy --only firestore:rules --project easy-stock-track
+//
+// Model: the app signs in ANONYMOUSLY, so request.auth.uid is the owner's
+// per-install UID. Every harness doc is scoped to that UID. The orchestrator uses
+// the Admin SDK (ADC), which BYPASSES these rules — so the rules only need to let
+// the OWNER CLIENT reach its own data, and deny everyone else.
+//
+// This project holds MOCK inventory only in the app; these rules cover the harness
+// collections. Anything not matched below is denied by default.
+// =============================================================================
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // --- Owner↔orchestrator chat: orchestratorChat/{uid}/messages/{msg} ---
+    // The owner reads + writes ONLY their own thread (thread id == their uid).
+    match /orchestratorChat/{uid}/messages/{msg} {
+      allow read, create: if signedIn() && request.auth.uid == uid;
+      // Messages are append-only from the client; no client update/delete.
+      allow update, delete: if false;
+    }
+    // The owner may read their own thread doc (if ever created); no arbitrary writes.
+    match /orchestratorChat/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+    }
+
+    // --- Report queue: stockIssueReports/{report} ---
+    // Create: the new doc must be stamped with the caller's own uid.
+    // Read/Update: only the owner of that report (its userId). Owner triage
+    // (status / triageDecision / comments / flag / resolved) is an update.
+    match /stockIssueReports/{report} {
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
+      allow read, update: if signedIn() && resource.data.userId == request.auth.uid;
+      allow delete: if false;
+    }
+
+    // --- Orchestrator poke: system/orchestratorPoke ---
+    // Any signed-in owner may bump the poke (the "wake the orchestrator" signal).
+    // Not client-readable (the orchestrator reads it via Admin SDK).
+    match /system/orchestratorPoke {
+      allow write: if signedIn();
+      allow read: if false;
+    }
+
+    // Default deny for everything else.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

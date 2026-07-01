@@ -1,0 +1,133 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://blueprint-harness/project.config.schema.json",
+  "title": "Harness project.config",
+  "description": "Per-project IDENTITY for the generalized harness. Holds names/paths/ids only — never secret VALUES. ${a.b} interpolates another key.",
+  "type": "object",
+  "required": ["project", "paths", "app", "firebase", "owner", "push", "collections", "distribution"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "_comment": { "type": "string" },
+    "project": {
+      "type": "object",
+      "required": ["name", "slug", "ownerName", "ownerRole"],
+      "properties": {
+        "name": { "type": "string" },
+        "slug": { "type": "string" },
+        "ownerName": { "type": "string" },
+        "ownerRole": { "type": "string" }
+      }
+    },
+    "paths": {
+      "type": "object",
+      "required": ["repoRoot"],
+      "properties": {
+        "repoRoot": { "type": "string" },
+        "cleanRoomRoot": { "type": "string" },
+        "logsDir": { "type": "string" },
+        "backendDirs": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "app": {
+      "type": "object",
+      "required": ["appName"],
+      "properties": {
+        "appName": { "type": "string" },
+        "androidPackageId": { "type": "string" },
+        "iosBundleId": { "type": "string" },
+        "isFlutter": { "type": "boolean" }
+      }
+    },
+    "firebase": {
+      "type": "object",
+      "required": ["projectId", "serviceAccountPath"],
+      "properties": {
+        "projectId": { "type": "string" },
+        "storageBucket": { "type": "string" },
+        "serviceAccountPath": { "type": "string", "description": "Path/name reference only — the key file stays gitignored." },
+        "clientConfigPath": { "type": "string" },
+        "adminModulePath": { "type": "string" }
+      }
+    },
+    "owner": {
+      "type": "object",
+      "required": ["uid"],
+      "properties": {
+        "uid": { "type": "string" },
+        "fcmTokenPath": { "type": "string" }
+      }
+    },
+    "push": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "androidChannelId": { "type": "string" },
+        "dataRoute": { "type": "string" }
+      }
+    },
+    "collections": {
+      "type": "object",
+      "required": ["chatRoot", "reports"],
+      "properties": {
+        "chatRoot": { "type": "string" },
+        "poke": { "type": "string" },
+        "workflowContext": { "type": "string" },
+        "agentStatus": { "type": "string" },
+        "vision": { "type": "string" },
+        "reports": { "type": "string" }
+      }
+    },
+    "storage": {
+      "type": "object",
+      "properties": {
+        "chatDocs": { "type": "string" },
+        "chatMedia": { "type": "string" },
+        "localMediaDir": { "type": "string" }
+      }
+    },
+    "distribution": {
+      "type": "object",
+      "properties": {
+        "appDistributionAppId": { "type": "string" },
+        "testerGroup": { "type": "string" },
+        "firebaseTokenEnv": { "type": "string", "description": "Env var NAME only — the token value stays in the environment." },
+        "versionScheme": { "type": "string" },
+        "versionSeed": { "type": "number" },
+        "buildCommand": { "type": "string" },
+        "apkOutputPath": { "type": "string" },
+        "cleanRoomWorktreeName": { "type": "string" },
+        "signingMode": { "type": "string" },
+        "keystorePropsPath": { "type": "string" }
+      }
+    },
+    "dogfoodExpiry": {
+      "type": "object",
+      "properties": {
+        "keepBuilds": { "type": "number" },
+        "maxAgeDays": { "type": "number" },
+        "archiveNeverDelete": { "type": "boolean" }
+      }
+    },
+    "lanes": {
+      "type": "object",
+      "properties": {
+        "registryPath": { "type": "string" },
+        "seedDir": { "type": "string" },
+        "agentLaunchCommand": { "type": "string" },
+        "names": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "registers": { "type": "object" },
+    "backup": { "type": "object" },
+    "fileSizeGuard": {
+      "type": "object",
+      "properties": {
+        "warn": { "type": "number" },
+        "justify": { "type": "number" },
+        "hardStop": { "type": "number" },
+        "enforce": { "type": "string" }
+      }
+    },
+    "skills": { "type": "object" }
+  }
+}

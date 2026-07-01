@@ -14,6 +14,11 @@ application_default_credentials.json
 .firebaserc.local
 firebase-debug.log
 
+# Node tooling deps for the orchestrator scripts (firebase-admin etc.)
+node_modules/
+scripts/node_modules/
+.harness_logs/
+
 # Miscellaneous
 *.class
 *.log

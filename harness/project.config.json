@@ -1,0 +1,64 @@
+{
+  "$schema": "./project.config.schema.json",
+  "_comment": "Per-project IDENTITY for the generalized owner/operator harness — Stock-Track's OWN instance. Holds NAMES/PATHS/IDS only, NEVER secret VALUES. This is a re-instantiation of the Blueprint-Fitness harness PATTERN with Stock-Track's OWN Firebase project (easy-stock-track). Contains ZERO Blueprint identifiers by design (proven by harness/harness_antileak_scan.sh). Secrets are never here: the orchestrator authenticates via ADC (gcloud application-default), never a committed key. ${a.b} interpolates another key. Safe to commit.",
+  "project": {
+    "name": "Stock-Track",
+    "slug": "stock-track",
+    "ownerName": "Brandon",
+    "ownerRole": "brandon"
+  },
+  "paths": {
+    "repoRoot": "/mnt/c/dev/Brandons_App",
+    "cleanRoomRoot": "/mnt/c/dev/Brandons_App",
+    "logsDir": "/mnt/c/dev/Brandons_App/.harness_logs",
+    "backendDirs": []
+  },
+  "app": {
+    "appName": "Stock-Track",
+    "androidPackageId": "com.stocktrack.app",
+    "iosBundleId": "com.stocktrack.stockTrack",
+    "isFlutter": true
+  },
+  "firebase": {
+    "projectId": "easy-stock-track",
+    "storageBucket": "easy-stock-track.firebasestorage.app",
+    "serviceAccountPath": "${paths.repoRoot}/service-account.json",
+    "clientConfigPath": "android/app/google-services.json",
+    "adminModulePath": "scripts/node_modules/firebase-admin"
+  },
+  "owner": {
+    "_comment": "Anonymous Auth means the owner UID is a RUNTIME value (per install), NOT a fixed literal. This placeholder only satisfies the schema/interpolation; the app keys the thread by the live anon uid, and stocktrack_chat.js AUTO-DISCOVERS the active thread (or takes --uid / STOCKTRACK_OWNER_UID).",
+    "uid": "RUNTIME_ANON_UID",
+    "fcmTokenPath": "users/${owner.uid}/fcmToken"
+  },
+  "push": {
+    "title": "Stock-Track Ops",
+    "androidChannelId": "stocktrack_ops_channel",
+    "dataRoute": "stocktrack_chat"
+  },
+  "collections": {
+    "chatRoot": "orchestratorChat",
+    "poke": "system/orchestratorPoke",
+    "workflowContext": "system/workflowContext",
+    "agentStatus": "system/agentStatus",
+    "vision": "system/vision",
+    "reports": "stockIssueReports"
+  },
+  "storage": {
+    "chatDocs": "orchestratorChat/${owner.uid}/docs",
+    "chatMedia": "${collections.chatRoot}/${owner.uid}/media",
+    "localMediaDir": "${paths.logsDir}/chat_media"
+  },
+  "distribution": {
+    "testerGroup": "self",
+    "versionScheme": "1.0(N)",
+    "versionSeed": 1,
+    "buildCommand": "flutter build apk --debug",
+    "apkOutputPath": "build/app/outputs/flutter-apk/",
+    "signingMode": "debug"
+  },
+  "lanes": {
+    "names": ["stocktrack-harness"]
+  },
+  "fileSizeGuard": { "warn": 500, "justify": 800, "hardStop": 1200, "enforce": "advisory" }
+}

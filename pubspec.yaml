@@ -42,11 +42,18 @@ dependencies:
   intl: ^0.20.2
   firebase_core: ^4.11.0
 
-  # NOTE: NO Firebase in this slice (frontend-first, mock/local data). The
+  # NOTE: INVENTORY data stays MOCK/local (frontend-first — no real-DB swap). The
   # repository interfaces in lib/data/repositories/ are the seam where a
-  # FirebaseInventoryRepository / FirebaseInstallationRepository plug in later
-  # WITHOUT touching the UI. Adding firebase_core/cloud_firestore is a one-place
-  # change (the provider overrides in lib/main.dart).
+  # FirebaseInventoryRepository plugs in later WITHOUT touching the UI.
+  #
+  # The Firebase deps below back the OWNER/OPERATOR HARNESS ONLY (lib/features/dev):
+  # the in-app orchestrator chat + report flow persist to Brandon's easy-stock-track
+  # project. cloud_firestore = chat/report docs; firebase_auth = anonymous owner UID;
+  # firebase_storage = report screenshots; image_picker = attach a screenshot.
+  cloud_firestore: ^6.1.0
+  firebase_auth: ^6.4.0
+  firebase_storage: ^13.1.0
+  image_picker: ^1.1.2
 
 dev_dependencies:
   flutter_test:

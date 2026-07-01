@@ -1,0 +1,25 @@
+rules_version = '2';
+
+// =============================================================================
+// Stock-Track harness Storage rules — for Brandon's project (easy-stock-track).
+// Deploy with:
+//   firebase deploy --only storage --project easy-stock-track
+//
+// Covers report screenshots. Layout (mirrors ScreenshotUploadService):
+//   stockIssueReports/{uid}/{epochMillis}_{index}.{ext}
+// The owner (anonymous UID) reads + writes ONLY their own screenshots. The
+// orchestrator downloads them via the Admin SDK, which bypasses these rules.
+// =============================================================================
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    match /stockIssueReports/{uid}/{fileName} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // Default deny for everything else.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

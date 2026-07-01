@@ -1,0 +1,13 @@
+{
+  "name": "stocktrack-orchestrator-scripts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Orchestrator-side tooling for the Stock-Track owner/operator harness, pinned to easy-stock-track. Auth = Application Default Credentials (ADC), never a committed key.",
+  "scripts": {
+    "selftest": "node stocktrack_chat.js --selftest",
+    "guard": "node bp_guard.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.0.0"
+  }
+}
