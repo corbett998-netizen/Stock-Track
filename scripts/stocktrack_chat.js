@@ -35,6 +35,7 @@ const harness = require('../harness/harness_config.js');
 const { findBpLeak, assertStockTrackOnly } = require('./bp_guard.js');
 
 const PROJECT_ID = harness.get('firebase.projectId');
+const DATABASE_ID = harness.tryGet('firebase.databaseId', '(default)');
 const STORAGE_BUCKET = harness.tryGet('firebase.storageBucket', `${PROJECT_ID}.firebasestorage.app`);
 const CHAT_ROOT = harness.get('collections.chatRoot');
 const REPORTS_COLLECTION = harness.get('collections.reports');
@@ -67,7 +68,8 @@ function db() {
       storageBucket: STORAGE_BUCKET,
     });
   }
-  _db = admin.firestore();
+  const { getFirestore } = require('firebase-admin/firestore');
+  _db = DATABASE_ID === '(default)' ? admin.firestore() : getFirestore(admin.app(), DATABASE_ID);
   return _db;
 }
 
