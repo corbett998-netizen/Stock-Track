@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:stock_track/core/utils/harness_logger.dart';
 import 'package:stock_track/features/dev/report_queue/models/report.dart';
 import 'package:stock_track/features/dev/report_queue/models/report_filter.dart';
+import 'package:stock_track/features/dev/report_queue/services/report_repository.dart';
 import 'package:stock_track/harness/harness_config.g.dart';
 
 /// Unit coverage for the ported owner/operator harness logic (pure Dart — no
@@ -159,5 +160,102 @@ void main() {
     test('all matches everything', () {
       expect(ReportFilter.all.matches(make('anything')), isTrue);
     });
+
+    test('readyToTest matches awaitingVerification (Chunk 3)', () {
+      final check = Report.fromMap('c', {
+        'note': 'n',
+        'status': 'fixed',
+        'awaitingVerification': true,
+      }, createdAtMs: 0);
+      expect(ReportFilter.readyToTest.matches(check), isTrue);
+      expect(ReportFilter.readyToTest.matches(make('new')), isFalse);
+      // A still-awaiting check-item is NOT counted as resolved yet.
+      expect(ReportFilter.resolved.matches(check), isFalse);
+    });
+  });
+
+  group('Report dogfood fields (Chunk 3)', () {
+    test('fromMap reads awaitingVerification / region / verifiedByUser', () {
+      final r = Report.fromMap('c', {
+        'note': 'Fixed X — verify on Inventory',
+        'status': 'fixed',
+        'area': 'build',
+        'region': 'Inventory',
+        'awaitingVerification': true,
+        'verifiedByUser': false,
+      }, createdAtMs: 0);
+      expect(r.awaitingVerification, isTrue);
+      expect(r.region, 'Inventory');
+      expect(r.verifiedByUser, isFalse);
+      expect(r.testOnLabel, 'Inventory');
+    });
+
+    test('testOnLabel falls back to area when region absent', () {
+      final r = Report.fromMap('c', {
+        'note': 'n',
+        'area': 'build',
+      }, createdAtMs: 0);
+      expect(r.testOnLabel, 'build');
+    });
+  });
+
+  group('MockReportRepository dogfood verify loop (Chunk 3)', () {
+    const checkId = 'seed-checkitem-1';
+
+    Future<List<Report>> snapshot(MockReportRepository repo) =>
+        repo.watchReports('u').first;
+
+    test('seeds a ready-to-test check-item', () async {
+      final repo = MockReportRepository();
+      final ready = (await snapshot(
+        repo,
+      )).where((r) => r.awaitingVerification).toList();
+      expect(ready.length, 1);
+      expect(ready.single.id, checkId);
+    });
+
+    test(
+      'Works → resolved (clears awaitingVerification, stamps verified)',
+      () async {
+        final repo = MockReportRepository();
+        await repo.markVerifiedWorks(checkId);
+        final r = (await snapshot(repo)).firstWhere((x) => x.id == checkId);
+        expect(r.awaitingVerification, isFalse);
+        expect(r.verifiedByUser, isTrue);
+        expect(r.manualResolved, isTrue);
+        expect(r.effectiveStatus, 'fixed');
+        expect(ReportFilter.readyToTest.matches(r), isFalse); // left the list
+        expect(ReportFilter.resolved.matches(r), isTrue);
+      },
+    );
+
+    test(
+      'Still broken → reopen (status new, flagged, stays awaiting)',
+      () async {
+        final repo = MockReportRepository();
+        await repo.markStillBroken(checkId);
+        final r = (await snapshot(repo)).firstWhere((x) => x.id == checkId);
+        expect(r.status, 'new');
+        expect(r.flaggedForOrchestrator, isTrue);
+        expect(r.manualResolved, isFalse);
+        expect(r.awaitingVerification, isTrue); // still a live check-item
+      },
+    );
+
+    test(
+      'reopen bug fix: Resolved-then-dropdown-reopen actually reopens',
+      () async {
+        final repo = MockReportRepository();
+        const bugId = 'seed-report-1';
+        await repo.setManualResolved(bugId, value: true);
+        var r = (await snapshot(repo)).firstWhere((x) => x.id == bugId);
+        expect(r.effectiveStatus, 'fixed');
+        // Pick a non-resolved status from the dropdown → must clear the stale tick.
+        await repo.updateStatus(bugId, status: 'new');
+        r = (await snapshot(repo)).firstWhere((x) => x.id == bugId);
+        expect(r.manualResolved, isFalse);
+        expect(r.effectiveStatus, 'new');
+      },
+    );
   });
 }

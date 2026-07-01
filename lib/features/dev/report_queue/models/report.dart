@@ -19,6 +19,9 @@ class Report {
     this.logsInline,
     this.deviceInfo,
     this.appBuild,
+    this.awaitingVerification = false,
+    this.region,
+    this.verifiedByUser = false,
   });
 
   final String id;
@@ -48,8 +51,26 @@ class Report {
   /// App build/version that produced the report (e.g. `1.0.0 (1)`).
   final String? appBuild;
 
+  /// Dogfood verify loop: an operator "announce build" check-item the owner must
+  /// verify (Works / Still-broken). True → shows under "Ready to test".
+  final bool awaitingVerification;
+
+  /// Which screen/area to test the check-item on (falls back to [area] / [platform]
+  /// when route capture hasn't run). "Which screen was I on" is the fastest signal.
+  final String? region;
+
+  /// Set when the owner confirmed a fix via the dogfood "Works" gate.
+  final bool verifiedByUser;
+
   /// The capture platform, if recorded.
   String? get platform => deviceInfo?['platform'] as String?;
+
+  /// The best "test on this screen" label for the ready-to-test checklist.
+  String get testOnLabel {
+    final r = (region ?? '').trim();
+    if (r.isNotEmpty) return r;
+    return area.isNotEmpty ? area : 'general';
+  }
 
   DateTime get createdAt => DateTime.fromMillisecondsSinceEpoch(createdAtMs);
 
@@ -120,6 +141,9 @@ class Report {
           ? Map<String, dynamic>.from(deviceRaw)
           : null,
       appBuild: d['appBuild'] as String?,
+      awaitingVerification: d['awaitingVerification'] == true,
+      region: d['region'] as String?,
+      verifiedByUser: d['verifiedByUser'] == true,
     );
   }
 }

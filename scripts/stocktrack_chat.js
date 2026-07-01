@@ -159,6 +159,9 @@ async function cmdBuild(msg, uid) {
     area: 'build',
     status: 'fixed',
     awaitingVerification: true,
+    // backfilled: this is an operator-announced check-item, not an owner-filed bug —
+    // lets the in-app queue distinguish build items from real reports.
+    backfilled: true,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
   });
   await bumpPoke(uid, `build: ${msg}`);

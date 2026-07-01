@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../harness/harness_config.g.dart';
 import 'chat/screens/orchestrator_chat_screen.dart';
 import 'dev_gate.dart';
+import 'dogfood/ready_to_test_sheet.dart';
 import 'harness_theme.dart';
 import 'report_capture/screens/report_capture_screen.dart';
 import 'report_queue/screens/report_queue_screen.dart';
@@ -58,6 +59,12 @@ class _CommandCenter extends ConsumerWidget {
           .length,
       orElse: () => null,
     );
+    // Dogfood check-items are status 'fixed' → excluded from openCount; count them
+    // SEPARATELY so they can't vanish from the command center.
+    final readyCount = reportsAsync.maybeWhen(
+      data: (r) => r.where((x) => x.awaitingVerification).length,
+      orElse: () => 0,
+    );
     final build = ref.watch(harnessAppBuildProvider).valueOrNull;
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -96,6 +103,16 @@ class _CommandCenter extends ConsumerWidget {
               ? 'Read + triage your reports.'
               : '$openCount open · read + triage.',
           onTap: () => _push(context, ReportQueueScreen(uid: uid)),
+        ),
+        _tile(
+          context,
+          icon: Icons.fact_check_outlined,
+          title: 'Ready to test',
+          subtitle: readyCount == 0
+              ? 'Shipped fixes to verify show up here.'
+              : '$readyCount ready to test · Works / Still broken.',
+          trailingBadge: readyCount == 0 ? null : '$readyCount',
+          onTap: () => showReadyToTestSheet(context, uid: uid),
         ),
         _PokeTile(uid: uid),
         const SizedBox(height: 20),
@@ -189,6 +206,7 @@ class _CommandCenter extends ConsumerWidget {
     required String title,
     required String subtitle,
     required VoidCallback onTap,
+    String? trailingBadge,
   }) {
     return Card(
       color: Colors.white.withValues(alpha: 0.04),
@@ -210,11 +228,36 @@ class _CommandCenter extends ConsumerWidget {
           subtitle,
           style: const TextStyle(color: Colors.white54, fontSize: 12),
         ),
-        trailing: const Icon(Icons.chevron_right, color: Colors.white38),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (trailingBadge != null) _countBadge(trailingBadge),
+            const Icon(Icons.chevron_right, color: Colors.white38),
+          ],
+        ),
         onTap: onTap,
       ),
     );
   }
+
+  Widget _countBadge(String label) => Container(
+    margin: const EdgeInsets.only(right: 6),
+    constraints: const BoxConstraints(minWidth: 22),
+    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+    decoration: BoxDecoration(
+      color: HarnessTheme.accent,
+      borderRadius: BorderRadius.circular(11),
+    ),
+    child: Text(
+      label,
+      textAlign: TextAlign.center,
+      style: const TextStyle(
+        color: Colors.black,
+        fontSize: 12,
+        fontWeight: FontWeight.w700,
+      ),
+    ),
+  );
 
   Widget _separationFooter() {
     return Center(

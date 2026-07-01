@@ -35,6 +35,13 @@ abstract interface class ReportRepository {
   Future<void> setManualResolved(String reportId, {required bool value});
   Future<void> setFlagged(String reportId, bool value);
   Future<void> addComment(String reportId, {required String text});
+
+  // ----- Dogfood verify loop (Ready-to-test) -----
+  /// Owner confirmed the check-item is fixed ("Works") — canonical resolved write.
+  Future<void> markVerifiedWorks(String reportId);
+
+  /// Owner says the check-item is still broken — canonical reopen write.
+  Future<void> markStillBroken(String reportId);
 }
 
 /// Firestore-backed reports against Brandon's project (easy-stock-track).
@@ -109,6 +116,34 @@ class FirebaseReportRepository implements ReportRepository {
     });
   }
 
+  // ===== Canonical resolved/reopened field-sets ============================
+  // ONE definition each, shared by the queue triage controls AND the ready-to-test
+  // sheet, so the two live surfaces over the same docs can never drift.
+
+  /// The write that RESOLVES a report (manual tick or dogfood "Works"). Clears the
+  /// verify flag and stamps a resolve time; [verifiedByUser] marks a dogfood pass.
+  static Map<String, dynamic> resolvedFields({bool verifiedByUser = false}) =>
+      <String, dynamic>{
+        'manualResolved': true,
+        'status': 'fixed',
+        'awaitingVerification': false,
+        'resolvedAt': FieldValue.serverTimestamp(),
+        if (verifiedByUser) 'verifiedByUser': true,
+      };
+
+  /// The write that REOPENS a report (dropdown reopen or dogfood "Still broken").
+  /// Clears the stale manual-resolved tick (THE reopen-bug fix) and flags the
+  /// orchestrator; [keepAwaitingVerification] keeps a dogfood item on the list.
+  static Map<String, dynamic> reopenedFields({
+    bool keepAwaitingVerification = false,
+  }) => <String, dynamic>{
+    'status': 'new',
+    'manualResolved': false,
+    'flaggedForOrchestrator': true,
+    'verifiedByUser': false,
+    'awaitingVerification': keepAwaitingVerification,
+  };
+
   Future<void> _update(String id, Map<String, dynamic> data) =>
       _reports.doc(id).update(data);
 
@@ -123,15 +158,35 @@ class FirebaseReportRepository implements ReportRepository {
   });
 
   @override
-  Future<void> updateStatus(String reportId, {required String status}) =>
-      _update(reportId, {'status': status});
+  Future<void> updateStatus(String reportId, {required String status}) {
+    final resolvedLike = status == 'fixed' || status == 'wont_fix';
+    // Reopen bug fix: picking a non-resolved status must clear the stale
+    // manual-resolved tick, else effectiveStatus still reads 'fixed' and the row
+    // contradicts the dropdown / can't be reopened.
+    return _update(reportId, <String, dynamic>{
+      'status': status,
+      if (!resolvedLike) 'manualResolved': false,
+    });
+  }
 
   @override
   Future<void> setManualResolved(String reportId, {required bool value}) =>
-      _update(reportId, {
-        'manualResolved': value,
-        if (value) 'status': 'fixed',
-      });
+      _update(
+        reportId,
+        value ? resolvedFields() : <String, dynamic>{'manualResolved': false},
+      );
+
+  @override
+  Future<void> markVerifiedWorks(String reportId) {
+    harnessLog.report('dogfood Works → resolved: $reportId');
+    return _update(reportId, resolvedFields(verifiedByUser: true));
+  }
+
+  @override
+  Future<void> markStillBroken(String reportId) {
+    harnessLog.report('dogfood Still-broken → reopen: $reportId');
+    return _update(reportId, reopenedFields(keepAwaitingVerification: true));
+  }
 
   @override
   Future<void> setFlagged(String reportId, bool value) =>
@@ -166,6 +221,23 @@ class MockReportRepository implements ReportRepository {
           'recommendedFix': 'Wrap the badge row so it reflows under the value.',
         },
         createdAtMs: DateTime.now().millisecondsSinceEpoch - 300000,
+      ),
+    );
+    // A seeded dogfood check-item so the "Ready to test" surface is visibly usable
+    // in mock mode (mirrors what `stocktrack_chat.js --build` writes).
+    _reports.add(
+      Report.fromMap(
+        'seed-checkitem-1',
+        <String, dynamic>{
+          'note':
+              'Fixed: low-stock badge reflow — verify on the Inventory list.',
+          'area': 'build',
+          'region': 'Inventory',
+          'status': 'fixed',
+          'awaitingVerification': true,
+          'backfilled': true,
+        },
+        createdAtMs: DateTime.now().millisecondsSinceEpoch - 60000,
       ),
     );
   }
@@ -245,8 +317,18 @@ class MockReportRepository implements ReportRepository {
   );
 
   @override
-  Future<void> updateStatus(String reportId, {required String status}) async =>
-      _replace(reportId, (r) => _copy(r, status: status));
+  Future<void> updateStatus(String reportId, {required String status}) async {
+    final resolvedLike = status == 'fixed' || status == 'wont_fix';
+    // Reopen bug fix (mock parity): a non-resolved status clears the stale tick.
+    _replace(
+      reportId,
+      (r) => _copy(
+        r,
+        status: status,
+        manualResolved: resolvedLike ? r.manualResolved : false,
+      ),
+    );
+  }
 
   @override
   Future<void> setManualResolved(
@@ -254,8 +336,46 @@ class MockReportRepository implements ReportRepository {
     required bool value,
   }) async => _replace(
     reportId,
-    (r) => _copy(r, manualResolved: value, status: value ? 'fixed' : r.status),
+    (r) => value
+        ? _copy(
+            r,
+            manualResolved: true,
+            status: 'fixed',
+            awaitingVerification: false,
+          )
+        : _copy(r, manualResolved: false),
   );
+
+  @override
+  Future<void> markVerifiedWorks(String reportId) async {
+    harnessLog.report('dogfood Works → resolved (mock): $reportId');
+    _replace(
+      reportId,
+      (r) => _copy(
+        r,
+        manualResolved: true,
+        status: 'fixed',
+        awaitingVerification: false,
+        verifiedByUser: true,
+      ),
+    );
+  }
+
+  @override
+  Future<void> markStillBroken(String reportId) async {
+    harnessLog.report('dogfood Still-broken → reopen (mock): $reportId');
+    _replace(
+      reportId,
+      (r) => _copy(
+        r,
+        status: 'new',
+        manualResolved: false,
+        flagged: true,
+        awaitingVerification: true,
+        verifiedByUser: false,
+      ),
+    );
+  }
 
   @override
   Future<void> setFlagged(String reportId, bool value) async =>
@@ -280,6 +400,8 @@ class MockReportRepository implements ReportRepository {
     bool? flagged,
     Object? triageDecision = _unset,
     List<Map<String, dynamic>>? comments,
+    bool? awaitingVerification,
+    bool? verifiedByUser,
   }) => Report(
     id: r.id,
     createdAtMs: r.createdAtMs,
@@ -297,6 +419,9 @@ class MockReportRepository implements ReportRepository {
     logsInline: r.logsInline,
     deviceInfo: r.deviceInfo,
     appBuild: r.appBuild,
+    awaitingVerification: awaitingVerification ?? r.awaitingVerification,
+    region: r.region,
+    verifiedByUser: verifiedByUser ?? r.verifiedByUser,
   );
 
   static const Object _unset = Object();
