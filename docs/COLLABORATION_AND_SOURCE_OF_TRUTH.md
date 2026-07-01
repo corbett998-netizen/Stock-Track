@@ -13,6 +13,14 @@
 
 Commit with clean messages. Branches/PRs are fine — choose the safest workflow for the repo state — but the source of truth is the repo itself, not chat.
 
+## Consolidated-push model (owner rule, 2026-07-01)
+Brandon's AI/orchestrator watches this repo, so a stream of rapid-fire intermediate commits/pushes is noise. **Push coherent checkpoints, not scratch updates:**
+- Work locally (and on a controlled local/work branch for any multi-step build) as needed.
+- Do NOT push every small mapping/agent/register/intermediate update to `main` in real time.
+- Batch related work into clear consolidated commits and land it as one grouped push when a deliverable is ready (e.g. "harness parity map", "backend setup docs", "validator checklist", a completed build chunk).
+- The final pushed state must be repo-readable + future-agent-readable and arrive as a coherent package, with a clean commit message naming the package.
+- Goal: Brandon's AI understands stable, coherent checkpoints — not a reaction to every intermediate edit. (Not hiding work; reducing noise.)
+
 ## 🔒 Guardrails (hard — enforce before every commit)
 1. **No secrets, ever.** No credentials, service-account files, tokens, passwords, `.env` files, Firebase admin keys, keystores, or private local auth artifacts get committed. The `.gitignore` blocks them; the anti-leak scan is the backstop. (Client configs like `google-services.json` are NOT secrets and are committed intentionally.)
 2. **No Blueprint Fitness private internals.** Keep Blueprint's private details out of this repo. If Blueprint behavior is referenced (e.g. in a parity map), document it as a **reusable harness pattern / parity requirement**, not by dumping Blueprint's private file paths, code, IDs, or internals.
