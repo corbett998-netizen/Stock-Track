@@ -64,3 +64,21 @@ final workflowContextProvider = FutureProvider<Map<String, dynamic>?>((
 ) async {
   return ref.watch(chatRepositoryProvider).readWorkflowContext();
 });
+
+/// The `system/agentStatus` doc (or null). Read-only in-app; feeds the "N agents
+/// engaged" header signal.
+final agentStatusProvider = FutureProvider<Map<String, dynamic>?>((ref) async {
+  return ref.watch(chatRepositoryProvider).readAgentStatus();
+});
+
+/// The "N agents engaged" count derived from [agentStatusProvider] — reads an
+/// `engaged` int or the length of an `agents` list; 0 when nothing is published.
+int agentsEngagedCount(Map<String, dynamic>? status) {
+  if (status == null) return 0;
+  final engaged = status['engaged'];
+  if (engaged is int) return engaged;
+  if (engaged is num) return engaged.toInt();
+  final agents = status['agents'];
+  if (agents is List) return agents.length;
+  return 0;
+}

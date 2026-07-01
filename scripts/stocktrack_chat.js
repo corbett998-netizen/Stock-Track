@@ -19,13 +19,29 @@
  *   node stocktrack_chat.js --read [sinceMillis]   print the owner's messages after sinceMillis + maxMillis cursor
  *   node stocktrack_chat.js --send "reply text"    post an orchestrator reply (+ bump the poke)
  *   node stocktrack_chat.js --build "1.0(N) — …"   post a build message + auto-create a dogfood check-item
- *   node stocktrack_chat.js --reports              list the owner's report queue
+ *   node stocktrack_chat.js --reports              list the owner's report queue (id + status + title)
+ *   node stocktrack_chat.js --report <id>          print ONE report in full (status, evidence, screenshots)
+ *   node stocktrack_chat.js --logs <id>            print a report's device-log tail (logsInline)
+ *   node stocktrack_chat.js --resolve <id>         close a report the owner filed (orchestrator resolve)
+ *   node stocktrack_chat.js --comment <id> "text"  add an orchestrator comment to a report (flags the owner)
+ *   node stocktrack_chat.js --screenshots <id> [dir]  download a report's Storage screenshots (Admin SDK)
+ *   node stocktrack_chat.js --dry-run <write cmd>  preview a write (payload + target) WITHOUT touching Firestore
  *   node stocktrack_chat.js --uid <uid>            pin the owner UID (else auto-discover the active thread)
- *   node stocktrack_chat.js --selftest             pure-logic checks (BP-guard + config), no Firestore/creds
+ *   node stocktrack_chat.js --selftest             pure-logic checks (BP-guard + config + payloads), no creds
  *
  * Owner UID: anonymous Auth mints a per-install UID, so it is NOT a fixed literal.
  * The script AUTO-DISCOVERS the active thread (the orchestratorChat doc with the
  * newest message), or takes --uid / STOCKTRACK_OWNER_UID.
+ *
+ * POKE CONSUMER (the wake side of the poll-free model): run a small loop that reads
+ * `system/orchestratorPoke.pokedAt` and, when it advances, runs `--read <cursor>`.
+ * e.g. a cron/Monitor every ~60s: read the poke doc → if pokedAt changed → `--read`.
+ * (The message/report IS the poke — the app bumps the doc on every owner send/file.)
+ *
+ * LIVE round-trip (real reads/writes against easy-stock-track) is BLOCKED on
+ * Brandon's IAM grant + `gcloud auth application-default login` (see
+ * docs/FOR_BRANDON_harness_backend.md). The code + `--selftest` + `--dry-run` are
+ * complete and pinned to easy-stock-track via ADC (NEVER a key/token).
  */
 'use strict';
 
@@ -74,6 +90,18 @@ function db() {
 }
 
 const messages = (uid) => db().collection(CHAT_ROOT).doc(uid).collection('messages');
+const reportsCol = () => db().collection(REPORTS_COLLECTION);
+
+// --dry-run: preview a write (payload + target) without touching Firestore. Set in
+// main() before any command runs.
+let DRY = false;
+
+/** Print a non-destructive preview of a write and signal it was NOT executed. */
+function previewWrite(target, payload) {
+  console.log(`STOCKTRACK-CHAT DRY-RUN | would write to: ${target}`);
+  console.log(JSON.stringify(payload, null, 2));
+  console.log('STOCKTRACK-CHAT RESULT: PASS | dry-run preview only, nothing written | class=dry-run');
+}
 
 /** Auto-discover the active owner thread: the orchestratorChat doc whose newest
  *  message is the most recent. Returns the uid, or null if none. */
@@ -132,6 +160,9 @@ async function cmdRead(sinceMs, uid) {
 }
 
 async function cmdSend(text, uid) {
+  if (DRY) {
+    return previewWrite(`${CHAT_ROOT}/${uid}/messages`, { role: 'orchestrator', text, via: 'text' });
+  }
   const admin = require('firebase-admin');
   await messages(uid).add({
     role: 'orchestrator',
@@ -144,6 +175,12 @@ async function cmdSend(text, uid) {
 }
 
 async function cmdBuild(msg, uid) {
+  if (DRY) {
+    return previewWrite(
+      `${CHAT_ROOT}/${uid}/messages + ${REPORTS_COLLECTION}`,
+      { message: msg, checkItem: { area: 'build', status: 'fixed', awaitingVerification: true, backfilled: true } },
+    );
+  }
   const admin = require('firebase-admin');
   await messages(uid).add({
     role: 'orchestrator',
@@ -181,6 +218,96 @@ async function cmdReports(uid) {
   if (!rows.length) console.log('  (none)');
 }
 
+// ─── Operator report ops (read/pick/close a report the owner filed) ──────────────
+
+async function _getReport(id) {
+  const doc = await reportsCol().doc(id).get();
+  if (!doc.exists) {
+    console.error(`STOCKTRACK-CHAT RESULT: EMPTY | no report '${id}' in ${REPORTS_COLLECTION} | class=not-found retryable=no`);
+    process.exit(0);
+  }
+  return doc;
+}
+
+/** Print ONE report in full — the operator's pick/read. */
+async function cmdReport(id) {
+  const r = (await _getReport(id)).data();
+  const shots = Array.isArray(r.screenshots) ? r.screenshots : [];
+  console.log(`STOCKTRACK-CHAT — REPORT ${id}`);
+  console.log(`  status:      ${r.status || 'new'}${r.awaitingVerification ? ' (awaiting verification)' : ''}${r.manualResolved ? ' (manualResolved)' : ''}`);
+  console.log(`  title:       ${(r.title || (r.note || '').split('\n')[0] || '').slice(0, 120)}`);
+  console.log(`  area:        ${r.area || 'general'}${r.region ? ` / ${r.region}` : ''}`);
+  console.log(`  build:       ${r.appBuild || '(unknown)'}`);
+  console.log(`  platform:    ${(r.deviceInfo && r.deviceInfo.platform) || '(unknown)'}`);
+  console.log(`  flagged:     ${r.flaggedForOrchestrator ? 'yes' : 'no'}`);
+  console.log(`  screenshots: ${shots.length}${shots.length ? ` (${shots.filter((s) => s && s.path).length} on Storage, ${shots.filter((s) => s && s.localPath).length} local/off)` : ''}`);
+  console.log(`  logsInline:  ${r.logsInline ? `${r.logsInline.length} bytes (use --logs ${id})` : '(none)'}`);
+  const comments = Array.isArray(r.comments) ? r.comments : [];
+  if (comments.length) {
+    console.log('  comments:');
+    comments.forEach((c) => console.log(`    - [${c.by || '?'}] ${c.text || ''}`));
+  }
+  console.log('  --- note ---');
+  console.log((r.note || '(no note)').split('\n').map((l) => '  ' + l).join('\n'));
+}
+
+/** Print a report's device-log tail (logs-first triage, off-device). */
+async function cmdLogs(id) {
+  const r = (await _getReport(id)).data();
+  const logs = r.logsInline || '';
+  console.log(`STOCKTRACK-CHAT — DEVICE LOG TAIL for ${id} (${logs.length} bytes):`);
+  console.log(logs || '  (no logsInline on this report)');
+}
+
+/** Close a report the owner filed — the orchestrator side of "owner files → fix →
+ *  owner verifies". Mirrors the app's canonical resolved field-set. */
+async function cmdResolve(id) {
+  const payload = { status: 'fixed', manualResolved: true, awaitingVerification: false, resolvedBy: 'orchestrator' };
+  if (DRY) return previewWrite(`${REPORTS_COLLECTION}/${id}`, { ...payload, resolvedAt: '<serverTimestamp>' });
+  const admin = require('firebase-admin');
+  await _getReport(id); // 404s cleanly if it doesn't exist
+  await reportsCol().doc(id).update({ ...payload, resolvedAt: admin.firestore.FieldValue.serverTimestamp() });
+  await bumpPoke(null, `resolved report ${id}`); // poke doc is thread-agnostic
+  console.log(`STOCKTRACK-CHAT RESULT: PASS | resolved report ${id}`);
+}
+
+/** Add an orchestrator comment to a report (flags the owner to look). */
+async function cmdComment(id, text) {
+  const entry = { text, at: new Date().toISOString(), by: 'orchestrator' };
+  if (DRY) return previewWrite(`${REPORTS_COLLECTION}/${id}`, { comments: `arrayUnion(${JSON.stringify(entry)})`, flaggedForOrchestrator: true });
+  const admin = require('firebase-admin');
+  await _getReport(id);
+  await reportsCol().doc(id).update({
+    comments: admin.firestore.FieldValue.arrayUnion(entry),
+    flaggedForOrchestrator: true,
+  });
+  console.log(`STOCKTRACK-CHAT RESULT: PASS | commented on report ${id}`);
+}
+
+/** Download a report's Storage screenshots to disk (Admin SDK). Storage-off/local
+ *  screenshots have nothing to download and are reported as such. */
+async function cmdScreenshots(id, destDir) {
+  const r = (await _getReport(id)).data();
+  const shots = (Array.isArray(r.screenshots) ? r.screenshots : []).filter((s) => s && s.path);
+  const local = (Array.isArray(r.screenshots) ? r.screenshots : []).filter((s) => s && s.localPath && !s.path);
+  if (!shots.length) {
+    console.log(`STOCKTRACK-CHAT RESULT: EMPTY | report ${id} has no downloadable Storage screenshots${local.length ? ` (${local.length} local-only — Storage was off at capture)` : ''} | class=no-storage-shots`);
+    return;
+  }
+  const fs = require('fs');
+  const path = require('path');
+  const dir = destDir || `./stocktrack_screenshots_${id}`;
+  fs.mkdirSync(dir, { recursive: true });
+  const admin = require('firebase-admin');
+  const bucket = admin.storage().bucket(STORAGE_BUCKET);
+  for (const s of shots) {
+    const out = path.join(dir, path.basename(s.path));
+    await bucket.file(s.path).download({ destination: out });
+    console.log(`  ↓ ${s.path} → ${out}`);
+  }
+  console.log(`STOCKTRACK-CHAT RESULT: PASS | downloaded ${shots.length} screenshot(s) for report ${id} → ${dir}`);
+}
+
 function runSelfTest() {
   const cases = [];
   const eq = (name, got, want) => cases.push({ name, ok: got === want, got, want });
@@ -197,6 +324,7 @@ function runSelfTest() {
   eq('config owner role is brandon', OWNER_ROLE, 'brandon');
   eq('resolved config carries NO BP literal',
     findBpLeak([PROJECT_ID, STORAGE_BUCKET, CHAT_ROOT, REPORTS_COLLECTION, POKE_DOC, OWNER_ROLE]), null);
+  eq('storage bucket pinned to easy-stock-track', STORAGE_BUCKET.startsWith('easy-stock-track'), true);
 
   let failed = 0;
   for (const c of cases) {
@@ -210,22 +338,50 @@ function runSelfTest() {
 async function main() {
   const args = process.argv.slice(2);
   if (args.includes('--help') || args.length === 0) {
-    console.log('usage: stocktrack_chat.js --read [sinceMillis] | --send "text" | --build "1.0(N) — desc" | --reports | --uid <uid> | --selftest');
+    console.log('usage: stocktrack_chat.js --read [sinceMillis] | --send "text" | --build "1.0(N) — desc"');
+    console.log('       | --reports | --report <id> | --logs <id> | --resolve <id> | --comment <id> "text"');
+    console.log('       | --screenshots <id> [dir] | [--dry-run] | --uid <uid> | --selftest');
     process.exit(0);
   }
   if (args.includes('--selftest')) return runSelfTest();
 
+  DRY = args.includes('--dry-run');
+
   const ui = args.indexOf('--uid');
   const argUid = ui !== -1 ? (args[ui + 1] || null) : null;
+  // For a dry-run of a chat write we preview the payload without discovering the
+  // live thread (no creds needed); real writes resolve the active thread.
+  const uidFor = async () => (DRY ? (argUid || '<auto-discover>') : await resolveUid(argUid));
+  const argAfter = (flag) => { const i = args.indexOf(flag); return i !== -1 ? args[i + 1] : undefined; };
 
   if (args.includes('--read')) {
     const since = Number(args[args.indexOf('--read') + 1]) || 0;
     return cmdRead(since, await resolveUid(argUid));
   }
   const si = args.indexOf('--send');
-  if (si !== -1 && args[si + 1]) return cmdSend(args[si + 1], await resolveUid(argUid));
+  if (si !== -1 && args[si + 1]) return cmdSend(args[si + 1], await uidFor());
   const bi = args.indexOf('--build');
-  if (bi !== -1 && args[bi + 1]) return cmdBuild(args[bi + 1], await resolveUid(argUid));
+  if (bi !== -1 && args[bi + 1]) return cmdBuild(args[bi + 1], await uidFor());
+
+  // ----- operator report ops (keyed by report id, no thread needed) -----
+  const rep = argAfter('--report');
+  if (rep) return cmdReport(rep);
+  const logs = argAfter('--logs');
+  if (logs) return cmdLogs(logs);
+  const res = argAfter('--resolve');
+  if (res) return cmdResolve(res);
+  const ci = args.indexOf('--comment');
+  if (ci !== -1 && args[ci + 1]) {
+    const text = args[ci + 2] || '';
+    if (!text) {
+      console.error('STOCKTRACK-CHAT RESULT: FAIL | --comment needs <id> "text" | class=usage retryable=no');
+      process.exit(1);
+    }
+    return cmdComment(args[ci + 1], text);
+  }
+  const shot = argAfter('--screenshots');
+  if (shot) return cmdScreenshots(shot, args[args.indexOf('--screenshots') + 2]);
+
   if (args.includes('--reports')) return cmdReports(await resolveUid(argUid));
 
   console.error('STOCKTRACK-CHAT RESULT: FAIL | unknown args | class=usage retryable=no');

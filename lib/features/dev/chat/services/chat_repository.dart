@@ -43,6 +43,10 @@ abstract interface class ChatRepository {
   /// is published yet — the dashboard shows an empty-but-honest state). Read-only
   /// from the app; the operator side publishes it (Chunk 6).
   Future<Map<String, dynamic>?> readWorkflowContext();
+
+  /// Read the `system/agentStatus` doc (or null). Feeds the "N agents engaged"
+  /// header signal. Read-only in-app; the operator side writes it.
+  Future<Map<String, dynamic>?> readAgentStatus();
 }
 
 /// Firestore-backed chat against Brandon's project (easy-stock-track).
@@ -132,6 +136,16 @@ class FirebaseChatRepository implements ChatRepository {
       return null;
     }
   }
+
+  @override
+  Future<Map<String, dynamic>?> readAgentStatus() async {
+    try {
+      final doc = await _db.doc(HarnessConfig.agentStatusDoc).get();
+      return doc.exists ? doc.data() : null;
+    } catch (_) {
+      return null;
+    }
+  }
 }
 
 /// In-memory chat for the Rung-0 demo (no Firebase). Seeded with a short thread so
@@ -205,4 +219,9 @@ class MockChatRepository implements ChatRepository {
       'updatedAt': DateTime.now().toIso8601String(),
     };
   }
+
+  @override
+  Future<Map<String, dynamic>?> readAgentStatus() async => <String, dynamic>{
+    'engaged': 1,
+  };
 }

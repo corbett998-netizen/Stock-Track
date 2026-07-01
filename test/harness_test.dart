@@ -8,6 +8,7 @@ import 'package:stock_track/features/dev/dev_gate.dart';
 import 'package:stock_track/features/dev/report_queue/models/report.dart';
 import 'package:stock_track/features/dev/report_queue/models/report_filter.dart';
 import 'package:stock_track/features/dev/report_queue/services/report_repository.dart';
+import 'package:stock_track/features/dev/services/harness_providers.dart';
 import 'package:stock_track/harness/harness_config.g.dart';
 
 /// Unit coverage for the ported owner/operator harness logic (pure Dart — no
@@ -282,6 +283,24 @@ void main() {
         ownerRole: owner,
       );
       expect(recent, contains('no new messages'));
+    });
+  });
+
+  group('agentsEngagedCount (Chunk 6 — N agents engaged)', () {
+    test('reads an engaged int', () {
+      expect(agentsEngagedCount({'engaged': 3}), 3);
+    });
+    test('falls back to an agents list length', () {
+      expect(
+        agentsEngagedCount({
+          'agents': ['orch', 'lead'],
+        }),
+        2,
+      );
+    });
+    test('null / empty → 0', () {
+      expect(agentsEngagedCount(null), 0);
+      expect(agentsEngagedCount({}), 0);
     });
   });
 

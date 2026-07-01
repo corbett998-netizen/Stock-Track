@@ -25,10 +25,50 @@ class _ReportQueueScreenState extends ConsumerState<ReportQueueScreen> {
   ReportFilter _filter = ReportFilter.all;
   bool _poked = false;
 
-  Future<void> _poke() async {
+  /// Poke-with-optional-note: wake the loop now, optionally carrying context.
+  Future<void> _pokeWithNote() async {
+    final controller = TextEditingController();
+    final note = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: HarnessTheme.panel,
+        title: const Text(
+          'Poke the orchestrator',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(
+            hintText: 'Optional note (what to look at)…',
+            hintStyle: TextStyle(color: Colors.white38),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(controller.text),
+            style: FilledButton.styleFrom(
+              backgroundColor: HarnessTheme.accent,
+              foregroundColor: Colors.black,
+            ),
+            child: const Text('Poke'),
+          ),
+        ],
+      ),
+    );
+    if (note == null) return; // cancelled
     setState(() => _poked = true);
     try {
-      await ref.read(reportRepositoryProvider).pokeOrchestrator();
+      await ref
+          .read(reportRepositoryProvider)
+          .pokeOrchestrator(
+            note: note.trim().isEmpty ? 'check queue' : note.trim(),
+          );
     } catch (_) {}
     Future.delayed(const Duration(seconds: 3), () {
       if (mounted) setState(() => _poked = false);
@@ -38,6 +78,9 @@ class _ReportQueueScreenState extends ConsumerState<ReportQueueScreen> {
   @override
   Widget build(BuildContext context) {
     final reportsAsync = ref.watch(ownerReportsProvider(widget.uid));
+    final engaged = agentsEngagedCount(
+      ref.watch(agentStatusProvider).valueOrNull,
+    );
     return Scaffold(
       backgroundColor: HarnessTheme.background,
       // Keyboard (comment composer inside a card) shrinks the body; the bottom
@@ -47,8 +90,9 @@ class _ReportQueueScreenState extends ConsumerState<ReportQueueScreen> {
         title: const Text('Report queue'),
         backgroundColor: HarnessTheme.panel,
         actions: [
+          if (engaged > 0) _agentsBadge(engaged),
           TextButton.icon(
-            onPressed: _poked ? null : _poke,
+            onPressed: _poked ? null : _pokeWithNote,
             icon: Icon(
               _poked ? Icons.check : Icons.notifications_active_outlined,
               size: 18,
@@ -74,6 +118,36 @@ class _ReportQueueScreenState extends ConsumerState<ReportQueueScreen> {
                 loading: () => const Center(child: CircularProgressIndicator()),
                 error: (e, _) => _errorState(e),
                 data: (reports) => _list(reports),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// "N engaged" — a live signal that the orchestrator/agents are working.
+  Widget _agentsBadge(int engaged) {
+    return Center(
+      child: Container(
+        margin: const EdgeInsets.only(right: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.green.withValues(alpha: 0.16),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.green.withValues(alpha: 0.5)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.circle, size: 8, color: Colors.greenAccent),
+            const SizedBox(width: 5),
+            Text(
+              '$engaged engaged',
+              style: const TextStyle(
+                color: Colors.greenAccent,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ],
