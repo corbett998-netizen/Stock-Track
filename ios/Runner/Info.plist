@@ -45,5 +45,9 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Dictate a bug report or a message to the orchestrator by voice.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Transcribe your dictation into a report note or chat message.</string>
 </dict>
 </plist>

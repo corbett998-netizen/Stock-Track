@@ -31,10 +31,12 @@ abstract interface class ChatRepository {
   Future<List<ChatItem>> fetchMessages(String uid);
 
   /// Append an owner message and bump the orchestrator poke (best-effort).
+  /// [imageSource] is an optional attached image (Storage URL or local path).
   Future<void> sendMessage({
     required String uid,
     required String text,
     String via = 'text',
+    String? imageSource,
   });
 
   /// Read the published `system/workflowContext` projection (or null when nothing
@@ -73,6 +75,7 @@ class FirebaseChatRepository implements ChatRepository {
           createdAtMs:
               (d.data()['createdAt'] as Timestamp?)?.millisecondsSinceEpoch ??
               0,
+          imageUrl: d.data()['imageUrl'] as String?,
         ),
     ];
   }
@@ -92,6 +95,7 @@ class FirebaseChatRepository implements ChatRepository {
     required String uid,
     required String text,
     String via = 'text',
+    String? imageSource,
   }) async {
     // 1) the message — the critical write the send awaits.
     final add = _messages(uid).add(<String, dynamic>{
@@ -100,6 +104,8 @@ class FirebaseChatRepository implements ChatRepository {
       'createdAt': FieldValue.serverTimestamp(),
       'via': via,
       'area': 'general',
+      if (imageSource != null && imageSource.isNotEmpty)
+        'imageUrl': imageSource,
     });
     // 2) bump the poke — fire-and-forget so it can never fail the send.
     final truncated = text.length > 80 ? '${text.substring(0, 80)}…' : text;
@@ -173,6 +179,7 @@ class MockChatRepository implements ChatRepository {
     required String uid,
     required String text,
     String via = 'text',
+    String? imageSource,
   }) async {
     _messages.add(
       ChatItem(
@@ -180,6 +187,7 @@ class MockChatRepository implements ChatRepository {
         role: HarnessConfig.ownerRole,
         text: text,
         createdAtMs: DateTime.now().millisecondsSinceEpoch,
+        imageUrl: imageSource,
       ),
     );
     _controller.add(_snapshot);

@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../../../core/utils/harness_speech.dart';
 import '../../harness_theme.dart';
 import '../../services/harness_providers.dart';
 
 /// File-a-report CAPTURE (harness point 2) — a note + optional screenshots →
-/// writes `stockIssueReports` (with screenshots to Storage) in easy-stock-track.
-/// Ported from Blueprint's `mobile_issue_report_screen`, trimmed to the Stock-Track
-/// slice (BP's voice dictation, route-region tagging + log upload are DEFERRED).
+/// writes `stockIssueReports` in easy-stock-track. Chunk 5 adds mic-to-note
+/// dictation (OS speech seam) and a submit-success report-ID with a copy button.
+/// Screenshot upload is Storage-gated (renders locally when Storage is off).
 class ReportCaptureScreen extends ConsumerStatefulWidget {
   const ReportCaptureScreen({super.key, required this.uid});
 
@@ -22,15 +24,45 @@ class ReportCaptureScreen extends ConsumerStatefulWidget {
 class _ReportCaptureScreenState extends ConsumerState<ReportCaptureScreen> {
   final TextEditingController _note = TextEditingController();
   final ImagePicker _picker = ImagePicker();
+  final HarnessSpeech _speech = HarnessSpeech();
   final List<XFile> _shots = <XFile>[];
   bool _submitting = false;
+  bool _listening = false;
+  String _micBase = '';
 
   static const int _maxShots = 4;
 
   @override
   void dispose() {
+    _speech.dispose();
     _note.dispose();
     super.dispose();
+  }
+
+  Future<void> _toggleMic() async {
+    if (_listening) {
+      await _speech.stop();
+      if (mounted) setState(() => _listening = false);
+      return;
+    }
+    _micBase = _note.text.trimRight();
+    final ok = await _speech.start(
+      onResult: (t) {
+        if (!mounted) return;
+        setState(() {
+          _note.text = _micBase.isEmpty ? t : '$_micBase $t';
+          _note.selection = TextSelection.collapsed(offset: _note.text.length);
+        });
+      },
+      onFinal: (_) {
+        if (mounted) setState(() => _listening = false);
+      },
+    );
+    if (!ok) {
+      _snack('Mic unavailable — check the microphone permission.');
+      return;
+    }
+    if (mounted) setState(() => _listening = true);
   }
 
   Future<void> _pick() async {
@@ -54,9 +86,10 @@ class _ReportCaptureScreenState extends ConsumerState<ReportCaptureScreen> {
       _snack('Add a note describing the issue.');
       return;
     }
+    if (_listening) await _toggleMic();
     setState(() => _submitting = true);
     try {
-      await ref
+      final id = await ref
           .read(reportRepositoryProvider)
           .fileReport(
             uid: widget.uid,
@@ -64,14 +97,60 @@ class _ReportCaptureScreenState extends ConsumerState<ReportCaptureScreen> {
             screenshots: List<XFile>.unmodifiable(_shots),
           );
       if (!mounted) return;
-      _snack('Report filed.');
-      Navigator.of(context).pop(true);
+      await _showFiledDialog(id);
+      if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
       if (mounted) {
         setState(() => _submitting = false);
         _snack("Couldn't file the report: $e");
       }
     }
+  }
+
+  /// Submit-success: show a short, copyable report ID so the owner can reference it
+  /// in chat.
+  Future<void> _showFiledDialog(String id) {
+    final shortId = id.length > 10 ? id.substring(0, 10) : id;
+    return showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: HarnessTheme.panel,
+        title: const Text(
+          'Report filed',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('ID ', style: TextStyle(color: Colors.white54)),
+            SelectableText(
+              shortId,
+              style: TextStyle(
+                color: HarnessTheme.accent,
+                fontWeight: FontWeight.w700,
+                fontFamily: 'monospace',
+              ),
+            ),
+            IconButton(
+              tooltip: 'Copy report ID',
+              icon: Icon(Icons.copy, size: 18, color: HarnessTheme.accent),
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: id));
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  const SnackBar(content: Text('Report ID copied')),
+                );
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Done'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _snack(String m) {
@@ -95,12 +174,35 @@ class _ReportCaptureScreenState extends ConsumerState<ReportCaptureScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            const Text(
-              'What happened?',
-              style: TextStyle(
-                color: Colors.white70,
-                fontWeight: FontWeight.w600,
-              ),
+            Row(
+              children: [
+                const Text(
+                  'What happened?',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const Spacer(),
+                // Mic-to-note dictation (OS speech seam). Degrades to a snack when
+                // the mic/engine is unavailable.
+                TextButton.icon(
+                  onPressed: _submitting ? null : _toggleMic,
+                  icon: Icon(
+                    _listening ? Icons.stop_circle : Icons.mic_none,
+                    size: 18,
+                    color: _listening ? Colors.redAccent : HarnessTheme.accent,
+                  ),
+                  label: Text(
+                    _listening ? 'Stop' : 'Dictate',
+                    style: TextStyle(
+                      color: _listening
+                          ? Colors.redAccent
+                          : HarnessTheme.accent,
+                    ),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 8),
             TextField(

@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/report.dart';
 import 'report_common.dart';
 import 'report_detail.dart';
+import 'report_image.dart';
 import 'report_triage_block.dart';
 
 /// One report card — collapsed summary; expands to the triage detail with the
@@ -41,8 +42,9 @@ class _ReportCardState extends ConsumerState<ReportCard> {
       return true;
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Update failed: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Update failed: $e')));
       }
       return false;
     } finally {
@@ -53,18 +55,22 @@ class _ReportCardState extends ConsumerState<ReportCard> {
   Future<void> _setTriage(String? decision) async {
     final prev = _pendingDecision;
     setState(() => _pendingDecision = decision);
-    final ok = await _runWrite(() => ref
-        .read(reportRepositoryProvider)
-        .setTriageDecision(widget.report.id, decision: decision));
+    final ok = await _runWrite(
+      () => ref
+          .read(reportRepositoryProvider)
+          .setTriageDecision(widget.report.id, decision: decision),
+    );
     if (!ok && mounted) setState(() => _pendingDecision = prev);
   }
 
   Future<void> _addComment() async {
     final text = _commentCtrl.text.trim();
     if (text.isEmpty) return;
-    final ok = await _runWrite(() => ref
-        .read(reportRepositoryProvider)
-        .addComment(widget.report.id, text: text));
+    final ok = await _runWrite(
+      () => ref
+          .read(reportRepositoryProvider)
+          .addComment(widget.report.id, text: text),
+    );
     if (ok && mounted) _commentCtrl.clear();
   }
 
@@ -97,14 +103,19 @@ class _ReportCardState extends ConsumerState<ReportCard> {
               saving: _saving,
               commentController: _commentCtrl,
               onAddComment: _addComment,
-              onStatusChanged: (s) => _runWrite(() => ref
-                  .read(reportRepositoryProvider)
-                  .updateStatus(r.id, status: s)),
-              onResolvedToggle: (v) => _runWrite(() => ref
-                  .read(reportRepositoryProvider)
-                  .setManualResolved(r.id, value: v)),
-              onFlagToggle: (v) => _runWrite(() =>
-                  ref.read(reportRepositoryProvider).setFlagged(r.id, v)),
+              onStatusChanged: (s) => _runWrite(
+                () => ref
+                    .read(reportRepositoryProvider)
+                    .updateStatus(r.id, status: s),
+              ),
+              onResolvedToggle: (v) => _runWrite(
+                () => ref
+                    .read(reportRepositoryProvider)
+                    .setManualResolved(r.id, value: v),
+              ),
+              onFlagToggle: (v) => _runWrite(
+                () => ref.read(reportRepositoryProvider).setFlagged(r.id, v),
+              ),
             ),
           ],
         ],
@@ -134,9 +145,10 @@ class _ReportCardState extends ConsumerState<ReportCard> {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14),
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
                   ),
                   const SizedBox(height: 6),
                   Wrap(
@@ -148,15 +160,20 @@ class _ReportCardState extends ConsumerState<ReportCard> {
                       ReportMetaChip(Icons.place_outlined, r.area),
                       ReportMetaChip(Icons.schedule, relativeTime(r.createdAt)),
                       if (r.flaggedForOrchestrator)
-                        const ReportMetaChip(Icons.flag, 'flagged',
-                            color: kReportAccent),
+                        const ReportMetaChip(
+                          Icons.flag,
+                          'flagged',
+                          color: kReportAccent,
+                        ),
                     ],
                   ),
                 ],
               ),
             ),
-            Icon(_expanded ? Icons.expand_less : Icons.expand_more,
-                color: Colors.white.withValues(alpha: 0.5)),
+            Icon(
+              _expanded ? Icons.expand_less : Icons.expand_more,
+              color: Colors.white.withValues(alpha: 0.5),
+            ),
           ],
         ),
       ),
@@ -164,18 +181,9 @@ class _ReportCardState extends ConsumerState<ReportCard> {
   }
 
   Widget _thumb(String url, int count) {
-    if (!url.startsWith('http')) return const ReportThumbPlaceholder();
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
-      child: Image.network(
-        url,
-        width: 56,
-        height: 56,
-        fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => const ReportThumbPlaceholder(),
-        loadingBuilder: (c, child, p) =>
-            p == null ? child : const ReportThumbPlaceholder(),
-      ),
+      child: ReportImage(url, width: 56, height: 56),
     );
   }
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/report.dart';
 import 'report_common.dart';
+import 'report_image.dart';
 
 /// The expanded report detail — status dropdown, resolved / flag toggles, the
 /// comment thread + composer, and any screenshots. Ported from Blueprint's
@@ -55,7 +56,7 @@ class ReportDetail extends StatelessWidget {
             const SizedBox(height: 10),
           ],
           if (report.screenshots.isNotEmpty) ...[
-            _screenshots(),
+            _screenshots(context),
             const SizedBox(height: 10),
           ],
           if ((report.appBuild ?? '').isNotEmpty ||
@@ -224,29 +225,24 @@ class ReportDetail extends StatelessWidget {
     );
   }
 
-  Widget _screenshots() {
+  Widget _screenshots(BuildContext context) {
     return SizedBox(
       height: 72,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: report.screenshots.length,
         separatorBuilder: (_, __) => const SizedBox(width: 8),
-        itemBuilder: (_, i) {
-          final url = report.screenshots[i];
-          if (!url.startsWith('http')) return const ReportThumbPlaceholder();
-          return ClipRRect(
+        itemBuilder: (_, i) => GestureDetector(
+          onTap: () => showScreenshotGallery(
+            context,
+            sources: report.screenshots,
+            initialIndex: i,
+          ),
+          child: ClipRRect(
             borderRadius: BorderRadius.circular(8),
-            child: Image.network(
-              url,
-              width: 72,
-              height: 72,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => const ReportThumbPlaceholder(),
-              loadingBuilder: (c, child, p) =>
-                  p == null ? child : const ReportThumbPlaceholder(),
-            ),
-          );
-        },
+            child: ReportImage(report.screenshots[i], width: 72, height: 72),
+          ),
+        ),
       ),
     );
   }

@@ -1,7 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image_picker/image_picker.dart' show XFile;
 import 'package:stock_track/core/utils/harness_logger.dart';
 import 'package:stock_track/features/dev/chat/models/chat_item.dart';
 import 'package:stock_track/features/dev/chat/services/chat_export.dart';
+import 'package:stock_track/features/dev/chat/services/chat_upload_service.dart';
+import 'package:stock_track/features/dev/dev_gate.dart';
 import 'package:stock_track/features/dev/report_queue/models/report.dart';
 import 'package:stock_track/features/dev/report_queue/models/report_filter.dart';
 import 'package:stock_track/features/dev/report_queue/services/report_repository.dart';
@@ -279,6 +282,48 @@ void main() {
         ownerRole: owner,
       );
       expect(recent, contains('no new messages'));
+    });
+  });
+
+  group('Attachments — Storage-gated (Chunk 5)', () {
+    test(
+      'ChatUploadService returns the LOCAL path when Storage is off',
+      () async {
+        // Storage is deliberately off for the first proof.
+        expect(kHarnessStorageEnabled, isFalse);
+        final source = await ChatUploadService.resolve(
+          XFile('/tmp/shot.png'),
+          uid: 'u',
+        );
+        expect(source, '/tmp/shot.png'); // no upload attempted
+      },
+    );
+
+    test('ChatUploadService returns null for no attachment', () async {
+      expect(await ChatUploadService.resolve(null, uid: 'u'), isNull);
+    });
+
+    test('Report resolves a localPath screenshot entry (Storage off)', () {
+      final r = Report.fromMap('r', {
+        'note': 'x',
+        'screenshots': [
+          {'localPath': '/data/user/0/app/cache/pic.jpg', 'bytes': 10},
+        ],
+      }, createdAtMs: 0);
+      expect(r.screenshots, ['/data/user/0/app/cache/pic.jpg']);
+    });
+
+    test('ChatItem carries an image attachment', () {
+      const m = ChatItem(
+        id: 'i',
+        role: 'brandon',
+        text: '',
+        createdAtMs: 0,
+        imageUrl: '/x/y.png',
+      );
+      expect(m.hasImage, isTrue);
+      const t = ChatItem(id: 'i', role: 'brandon', text: 'hi', createdAtMs: 0);
+      expect(t.hasImage, isFalse);
     });
   });
 

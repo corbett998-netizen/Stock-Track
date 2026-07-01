@@ -19,8 +19,9 @@ abstract interface class ReportRepository {
   /// Live stream of the signed-in owner's own reports, newest→oldest.
   Stream<List<Report>> watchReports(String uid);
 
-  /// File a new report (optionally with screenshots) — the CAPTURE half.
-  Future<void> fileReport({
+  /// File a new report (optionally with screenshots) — the CAPTURE half. Returns
+  /// the new report's id so the capture UI can show a copyable handle.
+  Future<String> fileReport({
     required String uid,
     required String note,
     List<XFile> screenshots = const <XFile>[],
@@ -74,7 +75,7 @@ class FirebaseReportRepository implements ReportRepository {
   }
 
   @override
-  Future<void> fileReport({
+  Future<String> fileReport({
     required String uid,
     required String note,
     List<XFile> screenshots = const <XFile>[],
@@ -87,7 +88,7 @@ class FirebaseReportRepository implements ReportRepository {
     // build that produced it (logs-first, answerable "which build").
     final logsInline = harnessLog.inlineTail();
     final appBuild = await resolveHarnessAppBuild();
-    await _reports.add(<String, dynamic>{
+    final ref = await _reports.add(<String, dynamic>{
       'userId': uid,
       'note': note,
       'noteOriginal': note,
@@ -100,8 +101,11 @@ class FirebaseReportRepository implements ReportRepository {
       if (logsInline.isNotEmpty) 'logsInline': logsInline,
       if (shots.isNotEmpty) 'screenshots': shots,
     });
-    harnessLog.report('filed OK (${logsInline.length}B logs, build $appBuild)');
+    harnessLog.report(
+      'filed OK ${ref.id} (${logsInline.length}B logs, build $appBuild)',
+    );
     unawaited(pokeOrchestrator(note: 'new report filed').catchError((_) {}));
+    return ref.id;
   }
 
   static String _firstLine(String s) => s.split('\n').first.trim();
@@ -270,7 +274,7 @@ class MockReportRepository implements ReportRepository {
   }
 
   @override
-  Future<void> fileReport({
+  Future<String> fileReport({
     required String uid,
     required String note,
     List<XFile> screenshots = const <XFile>[],
@@ -278,24 +282,23 @@ class MockReportRepository implements ReportRepository {
     harnessLog.report('file (mock): "${note.split('\n').first.trim()}"');
     final logsInline = harnessLog.inlineTail();
     final appBuild = await resolveHarnessAppBuild();
+    final id = 'local-${DateTime.now().microsecondsSinceEpoch}';
     _reports.add(
-      Report.fromMap(
-        'local-${DateTime.now().microsecondsSinceEpoch}',
-        <String, dynamic>{
-          'note': note,
-          'area': 'general',
-          'status': 'new',
-          'screenshots': [for (final s in screenshots) s.path],
-          'deviceInfo': <String, dynamic>{
-            'platform': defaultTargetPlatform.name,
-          },
-          'appBuild': appBuild,
-          if (logsInline.isNotEmpty) 'logsInline': logsInline,
-        },
-        createdAtMs: DateTime.now().millisecondsSinceEpoch,
-      ),
+      Report.fromMap(id, <String, dynamic>{
+        'note': note,
+        'area': 'general',
+        'status': 'new',
+        // Local file paths (Storage off / mock) — rendered on-device.
+        'screenshots': [
+          for (final s in screenshots) {'localPath': s.path},
+        ],
+        'deviceInfo': <String, dynamic>{'platform': defaultTargetPlatform.name},
+        'appBuild': appBuild,
+        if (logsInline.isNotEmpty) 'logsInline': logsInline,
+      }, createdAtMs: DateTime.now().millisecondsSinceEpoch),
     );
     _emit();
+    return id;
   }
 
   @override

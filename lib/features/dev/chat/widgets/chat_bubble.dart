@@ -1,9 +1,10 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
-/// One chat bubble — owner (right, accent) vs orchestrator (left, surface). Ported
-/// from Blueprint's `ChatBubble`; Chunk 4 adds a per-bubble copy affordance +
-/// multi-select support (long-press to enter selection, tap to toggle) so the owner
-/// can copy replies out to an external LLM — the daily lever.
+/// One chat bubble — owner (right, accent) vs orchestrator (left, surface). Chunk 4
+/// adds per-bubble copy + multi-select; Chunk 5 adds an inline image attachment
+/// (tap to zoom).
 ///
 /// PART OF THE REUSABLE HARNESS FRAMEWORK — app-agnostic; accent + callbacks passed
 /// in. Uses plain `Text` (not `SelectableText`) so long-press cleanly enters
@@ -15,6 +16,7 @@ class ChatBubble extends StatelessWidget {
     required this.text,
     required this.isOwner,
     required this.accent,
+    this.imageUrl,
     this.onCopy,
     this.onTap,
     this.onLongPress,
@@ -25,6 +27,9 @@ class ChatBubble extends StatelessWidget {
   final String text;
   final bool isOwner;
   final Color accent;
+
+  /// An attached image — a Storage URL or a local file path. Null = text-only.
+  final String? imageUrl;
 
   /// Copy just this bubble (per-bubble copy icon). Hidden in selection mode.
   final VoidCallback? onCopy;
@@ -110,15 +115,21 @@ class ChatBubble extends StatelessWidget {
               ],
             ],
           ),
-          const SizedBox(height: 3),
-          Text(
-            text,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 15,
-              height: 1.3,
+          if ((imageUrl ?? '').isNotEmpty) ...[
+            const SizedBox(height: 6),
+            _image(context, imageUrl!),
+          ],
+          if (text.isNotEmpty) ...[
+            const SizedBox(height: 3),
+            Text(
+              text,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 15,
+                height: 1.3,
+              ),
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -132,4 +143,61 @@ class ChatBubble extends StatelessWidget {
       ),
     );
   }
+
+  Widget _image(BuildContext context, String source) {
+    final img = source.startsWith('http')
+        ? Image.network(
+            source,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => _imgError(),
+          )
+        : Image.file(
+            File(source),
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => _imgError(),
+          );
+    return GestureDetector(
+      // In selection mode a tap toggles the bubble; otherwise it zooms the image.
+      onTap: selectionMode ? onTap : () => showChatImageZoom(context, source),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 220),
+          child: img,
+        ),
+      ),
+    );
+  }
+
+  Widget _imgError() => Container(
+    width: 140,
+    height: 100,
+    color: Colors.white.withValues(alpha: 0.06),
+    child: const Icon(Icons.broken_image_outlined, color: Colors.white38),
+  );
+}
+
+/// Full-screen, pinch-to-zoom view of a chat image (URL or local path).
+Future<void> showChatImageZoom(BuildContext context, String source) {
+  return Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      fullscreenDialog: true,
+      builder: (_) => Scaffold(
+        backgroundColor: Colors.black,
+        appBar: AppBar(
+          backgroundColor: Colors.black,
+          foregroundColor: Colors.white,
+        ),
+        body: Center(
+          child: InteractiveViewer(
+            minScale: 0.8,
+            maxScale: 5,
+            child: source.startsWith('http')
+                ? Image.network(source)
+                : Image.file(File(source)),
+          ),
+        ),
+      ),
+    ),
+  );
 }

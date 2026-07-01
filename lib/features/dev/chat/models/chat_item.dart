@@ -13,6 +13,7 @@ class ChatItem {
     required this.role,
     required this.text,
     required this.createdAtMs,
+    this.imageUrl,
   });
 
   final String id;
@@ -21,4 +22,10 @@ class ChatItem {
   final String role;
   final String text;
   final int createdAtMs;
+
+  /// An attached image — a Storage download URL (Storage on) or a local file path
+  /// (Storage off / mock, rendered on-device). Null when the message is text-only.
+  final String? imageUrl;
+
+  bool get hasImage => (imageUrl ?? '').isNotEmpty;
 }

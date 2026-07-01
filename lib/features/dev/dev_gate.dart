@@ -20,3 +20,13 @@ const bool kHarnessEnabled = !kReleaseMode;
 enum HarnessMode { firebase, mock }
 
 const HarnessMode kHarnessMode = HarnessMode.firebase;
+
+/// Storage gate for attachment UPLOADS (chat images + report screenshots).
+///
+/// Firebase Storage is deliberately OFF in easy-stock-track for the first backend
+/// proof (Brandon hasn't enabled it). While false, the harness NEVER attempts a
+/// Storage upload: attachments are staged + rendered LOCALLY (fully usable in mock
+/// mode / on-device this session), and firebase-mode surfaces show a clear
+/// "Storage off" state instead of crashing. Flip to true the moment Brandon enables
+/// Storage in easy-stock-track (the ONLY switch — the upload seam is already wired).
+const bool kHarnessStorageEnabled = false;

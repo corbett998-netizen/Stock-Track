@@ -109,6 +109,11 @@ class Report {
       for (final s in shotsRaw) {
         if (s is Map && s['url'] is String && (s['url'] as String).isNotEmpty) {
           shots.add(s['url'] as String);
+        } else if (s is Map &&
+            s['localPath'] is String &&
+            (s['localPath'] as String).isNotEmpty) {
+          // Storage-off / mock capture — a local file path, rendered on-device.
+          shots.add(s['localPath'] as String);
         } else if (s is String && s.isNotEmpty) {
           shots.add(s);
         }

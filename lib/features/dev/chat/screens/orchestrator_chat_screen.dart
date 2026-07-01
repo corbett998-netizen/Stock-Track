@@ -213,6 +213,7 @@ class _OrchestratorChatScreenState extends ConsumerState<OrchestratorChatScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _messages.dispose();
+    _compose.dispose();
     _scroll.dispose();
     _input.dispose();
     _focus.dispose();
@@ -311,6 +312,7 @@ class _OrchestratorChatScreenState extends ConsumerState<OrchestratorChatScreen>
           text: it.text,
           isOwner: it.role == HarnessConfig.ownerRole,
           accent: HarnessTheme.accent,
+          imageUrl: it.imageUrl,
           selectionMode: _selecting,
           selected: _selected.contains(it.id),
           onCopy: () => _copyOne(it),
