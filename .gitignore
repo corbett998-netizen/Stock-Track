@@ -1,3 +1,19 @@
+# === SECRETS — never commit (admin creds / keys / tokens) ===
+# NOTE: google-services.json + ios/Runner/GoogleService-Info.plist are CLIENT configs
+# (meant to live in the app) and ARE committed on purpose — do not add them here.
+# These are ADMIN secrets that must NEVER be committed:
+service-account*.json
+*serviceAccount*.json
+.env
+.env.*
+key.properties
+*.keystore
+*.jks
+# Google Application Default Credentials / firebase CI tokens
+application_default_credentials.json
+.firebaserc.local
+firebase-debug.log
+
 # Miscellaneous
 *.class
 *.log
