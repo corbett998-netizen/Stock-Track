@@ -36,12 +36,17 @@ abstract interface class ChatRepository {
     required String text,
     String via = 'text',
   });
+
+  /// Read the published `system/workflowContext` projection (or null when nothing
+  /// is published yet — the dashboard shows an empty-but-honest state). Read-only
+  /// from the app; the operator side publishes it (Chunk 6).
+  Future<Map<String, dynamic>?> readWorkflowContext();
 }
 
 /// Firestore-backed chat against Brandon's project (easy-stock-track).
 class FirebaseChatRepository implements ChatRepository {
   FirebaseChatRepository({FirebaseFirestore? firestore})
-      : _db = firestore ?? FirebaseFirestore.instance;
+    : _db = firestore ?? FirebaseFirestore.instance;
 
   final FirebaseFirestore _db;
 
@@ -66,7 +71,8 @@ class FirebaseChatRepository implements ChatRepository {
           role: (d.data()['role'] ?? 'orchestrator').toString(),
           text: (d.data()['text'] ?? '').toString(),
           createdAtMs:
-              (d.data()['createdAt'] as Timestamp?)?.millisecondsSinceEpoch ?? 0,
+              (d.data()['createdAt'] as Timestamp?)?.millisecondsSinceEpoch ??
+              0,
         ),
     ];
   }
@@ -98,13 +104,27 @@ class FirebaseChatRepository implements ChatRepository {
     // 2) bump the poke — fire-and-forget so it can never fail the send.
     final truncated = text.length > 80 ? '${text.substring(0, 80)}…' : text;
     unawaited(
-      _db.doc(HarnessConfig.pokeDoc).set(<String, dynamic>{
-        'pokedAt': FieldValue.serverTimestamp(),
-        'note': 'chat: $truncated',
-        'by': uid,
-      }).catchError((_) {}),
+      _db
+          .doc(HarnessConfig.pokeDoc)
+          .set(<String, dynamic>{
+            'pokedAt': FieldValue.serverTimestamp(),
+            'note': 'chat: $truncated',
+            'by': uid,
+          })
+          .catchError((_) {}),
     );
     await add;
+  }
+
+  @override
+  Future<Map<String, dynamic>?> readWorkflowContext() async {
+    try {
+      final doc = await _db.doc(HarnessConfig.workflowContextDoc).get();
+      return doc.exists ? doc.data() : null;
+    } catch (_) {
+      // Backend not ready / offline → treat as "nothing published".
+      return null;
+    }
   }
 }
 
@@ -119,7 +139,8 @@ class MockChatRepository implements ChatRepository {
       ChatItem(
         id: 'seed-1',
         role: 'orchestrator',
-        text: 'Stock-Track harness online (mock mode). This is the ported '
+        text:
+            'Stock-Track harness online (mock mode). This is the ported '
             'Blueprint owner/orchestrator chat running inside Stock-Track.',
         createdAtMs: base,
       ),
@@ -153,12 +174,27 @@ class MockChatRepository implements ChatRepository {
     required String text,
     String via = 'text',
   }) async {
-    _messages.add(ChatItem(
-      id: 'local-${DateTime.now().microsecondsSinceEpoch}',
-      role: HarnessConfig.ownerRole,
-      text: text,
-      createdAtMs: DateTime.now().millisecondsSinceEpoch,
-    ));
+    _messages.add(
+      ChatItem(
+        id: 'local-${DateTime.now().microsecondsSinceEpoch}',
+        role: HarnessConfig.ownerRole,
+        text: text,
+        createdAtMs: DateTime.now().millisecondsSinceEpoch,
+      ),
+    );
     _controller.add(_snapshot);
+  }
+
+  @override
+  Future<Map<String, dynamic>?> readWorkflowContext() async {
+    // A seeded demo projection so the dashboard is visibly usable in mock mode
+    // (mirrors what the Chunk-6 publisher writes to system/workflowContext).
+    return <String, dynamic>{
+      'lane': 'harness-parity (demo)',
+      'build': '${HarnessConfig.projectName} dev',
+      'state': 'Mock mode — no live backend; this is a seeded demo projection.',
+      'waitingOnOwner': 'nothing right now',
+      'updatedAt': DateTime.now().toIso8601String(),
+    };
   }
 }

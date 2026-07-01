@@ -55,3 +55,12 @@ final ownerReportsProvider = StreamProvider.family<List<Report>, String>((
 final harnessAppBuildProvider = FutureProvider<String>((ref) async {
   return resolveHarnessAppBuild();
 });
+
+/// The published `system/workflowContext` projection (or null when nothing is
+/// published). Read-only in-app; the operator side publishes it. Feeds the chat
+/// dashboard sheet + the ChatGPT-export context header.
+final workflowContextProvider = FutureProvider<Map<String, dynamic>?>((
+  ref,
+) async {
+  return ref.watch(chatRepositoryProvider).readWorkflowContext();
+});

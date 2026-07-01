@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:stock_track/core/utils/harness_logger.dart';
+import 'package:stock_track/features/dev/chat/models/chat_item.dart';
+import 'package:stock_track/features/dev/chat/services/chat_export.dart';
 import 'package:stock_track/features/dev/report_queue/models/report.dart';
 import 'package:stock_track/features/dev/report_queue/models/report_filter.dart';
 import 'package:stock_track/features/dev/report_queue/services/report_repository.dart';
@@ -196,6 +198,87 @@ void main() {
         'area': 'build',
       }, createdAtMs: 0);
       expect(r.testOnLabel, 'build');
+    });
+  });
+
+  group('ChatExport (Chunk 4 — paste-ready frames)', () {
+    const owner = 'brandon';
+    final items = [
+      const ChatItem(
+        id: 'a',
+        role: 'orchestrator',
+        text: 'hi',
+        createdAtMs: 1000,
+      ),
+      const ChatItem(id: 'b', role: owner, text: 'go', createdAtMs: 2000),
+    ];
+
+    test('oneBubble labels owner vs orchestrator', () {
+      expect(
+        ChatExport.oneBubble(items[0], ownerRole: owner),
+        contains('Orchestrator: hi'),
+      );
+      expect(
+        ChatExport.oneBubble(items[1], ownerRole: owner),
+        contains('Owner: go'),
+      );
+    });
+
+    test('threadBlock joins all lines, no preamble', () {
+      final block = ChatExport.threadBlock(items, ownerRole: owner);
+      expect(block, contains('Orchestrator: hi'));
+      expect(block, contains('Owner: go'));
+      expect(block.contains('==='), isFalse);
+    });
+
+    test('fullFrame carries preamble + build + context header + thread', () {
+      final frame = ChatExport.fullFrame(
+        items: items,
+        projectName: 'Stock-Track',
+        ownerRole: owner,
+        build: '1.0.0 (1)',
+        context: {'lane': 'harness', 'state': 'green'},
+      );
+      expect(frame, contains('Stock-Track owner↔orchestrator context'));
+      expect(frame, contains('App build: 1.0.0 (1)'));
+      expect(frame, contains('Workflow state'));
+      expect(frame, contains('Lane: harness'));
+      expect(frame, contains('Owner: go'));
+    });
+
+    test('contextHeader degrades to empty when nothing published', () {
+      expect(ChatExport.contextHeader(null), isEmpty);
+      expect(ChatExport.contextHeader(const {}), isEmpty);
+      // fullFrame still valid with no context.
+      final frame = ChatExport.fullFrame(
+        items: items,
+        projectName: 'Stock-Track',
+        ownerRole: owner,
+      );
+      expect(frame, contains('Conversation'));
+      expect(frame.contains('Workflow state'), isFalse);
+    });
+
+    test('recentFrame only includes messages after the cursor', () {
+      final recent = ChatExport.recentFrame(
+        items: items,
+        afterMs:
+            1000, // excludes the first (==1000), includes the second (2000)
+        projectName: 'Stock-Track',
+        ownerRole: owner,
+      );
+      expect(recent, contains('Owner: go'));
+      expect(recent.contains('Orchestrator: hi'), isFalse);
+    });
+
+    test('recentFrame is empty-honest when nothing is new', () {
+      final recent = ChatExport.recentFrame(
+        items: items,
+        afterMs: 9999,
+        projectName: 'Stock-Track',
+        ownerRole: owner,
+      );
+      expect(recent, contains('no new messages'));
     });
   });
 
