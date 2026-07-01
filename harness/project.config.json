@@ -44,6 +44,11 @@
     "vision": "system/vision",
     "reports": "stockIssueReports"
   },
+  "harness": {
+    "_comment": "In-app HONESTY signals for the owner harness. orchestratorBridge DECLARES whether a real operator loop is reading THIS project's chat/poke: 'off' = nobody is reading yet (writes still land in the backend), 'live' = an operator is polling. Drives the mode banner + poke/send honesty so a functional-looking-but-disconnected channel can never mislead a dogfooder. backendLabel is a generic human label for the connected backend (interpolated, never a hardcoded app noun). Flip orchestratorBridge to 'live' + set backendLabel only when the operator loop is actually running (owner A/B decision — see the connectivity spec).",
+    "orchestratorBridge": "off",
+    "backendLabel": "${firebase.projectId}"
+  },
   "storage": {
     "chatDocs": "orchestratorChat/${owner.uid}/docs",
     "chatMedia": "${collections.chatRoot}/${owner.uid}/media",

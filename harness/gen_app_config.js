@@ -47,6 +47,11 @@ function buildDart() {
     ['pushTitle', 'push.title'],
     ['pushAndroidChannelId', 'push.androidChannelId'],
     ['pushDataRoute', 'push.dataRoute'],
+    // In-app honesty signals (mode banner + poke/send). orchestratorBridge declares
+    // whether a real operator loop reads this project; backendLabel is a generic
+    // human label for the connected backend (interpolated — no hardcoded app noun).
+    ['orchestratorBridge', 'harness.orchestratorBridge'],
+    ['backendLabel', 'harness.backendLabel'],
   ];
 
   const lines = [];

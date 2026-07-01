@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../dev_gate.dart';
+import '../../harness_connectivity.dart';
 import '../controllers/chat_compose_controller.dart';
 
 /// The bottom composer. Chunk 5 adds an OS mic-dictation button, an image-attach
@@ -82,7 +83,10 @@ class ChatComposer extends StatelessWidget {
                   textInputAction: TextInputAction.newline,
                   style: const TextStyle(color: Colors.white, fontSize: 15),
                   decoration: InputDecoration(
-                    hintText: 'Message the orchestrator…',
+                    // Honest hint: in local preview the message is not delivered.
+                    hintText: resolveHarnessConn() == HarnessConn.localPreview
+                        ? 'Message (local preview — not delivered)…'
+                        : 'Message the orchestrator…',
                     hintStyle: const TextStyle(color: Colors.white38),
                     filled: true,
                     fillColor: const Color(0xFF1E1E20),

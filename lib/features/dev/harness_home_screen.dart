@@ -4,8 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../harness/harness_config.g.dart';
 import 'chat/screens/orchestrator_chat_screen.dart';
-import 'dev_gate.dart';
 import 'dogfood/ready_to_test_sheet.dart';
+import 'harness_connectivity.dart';
+import 'harness_mode_banner.dart';
 import 'harness_theme.dart';
 import 'report_capture/screens/report_capture_screen.dart';
 import 'report_queue/screens/report_queue_screen.dart';
@@ -69,6 +70,10 @@ class _CommandCenter extends ConsumerWidget {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        // Honest mode banner — amber in local-preview / not-reading-yet, gone when
+        // the orchestrator is actually connected.
+        const HarnessModeBanner(),
+        const SizedBox(height: 12),
         _statusCard(context, openCount, build),
         const SizedBox(height: 16),
         const Text(
@@ -122,7 +127,6 @@ class _CommandCenter extends ConsumerWidget {
   }
 
   Widget _statusCard(BuildContext context, int? openCount, String? build) {
-    final mode = kHarnessMode == HarnessMode.firebase ? 'Firebase' : 'Mock';
     final shortUid = uid.length > 12 ? '${uid.substring(0, 12)}…' : uid;
     return Container(
       padding: const EdgeInsets.all(16),
@@ -149,10 +153,9 @@ class _CommandCenter extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 12),
-          _kv(
-            'Backend',
-            '$mode · ${HarnessConfig.reportsCollection} in easy-stock-track',
-          ),
+          // Mode-aware, config-driven, HONEST backend line (no hardcoded project
+          // noun, and it never claims "live" when nothing is reading).
+          _kv('Backend', harnessBackendLine(resolveHarnessConn())),
           _kv('App build', build ?? '…'),
           _kv('Owner role', HarnessConfig.ownerRole),
           Row(
@@ -262,7 +265,7 @@ class _CommandCenter extends ConsumerWidget {
   Widget _separationFooter() {
     return Center(
       child: Text(
-        'Harness instance: ${HarnessConfig.projectName} · easy-stock-track\n'
+        'Harness instance: ${HarnessConfig.projectName} · ${HarnessConfig.backendLabel}\n'
         'Separate from any other app — its own Firebase, its own data.',
         textAlign: TextAlign.center,
         style: const TextStyle(
@@ -304,6 +307,19 @@ class _PokeTileState extends ConsumerState<_PokeTile> {
 
   @override
   Widget build(BuildContext context) {
+    // HONEST poke: in local preview there is no orchestrator to poke, so the tile is
+    // disabled and says so — it can't imply a wake was delivered into a void.
+    final conn = resolveHarnessConn();
+    final local = conn == HarnessConn.localPreview;
+    final String subtitle;
+    switch (conn) {
+      case HarnessConn.localPreview:
+        subtitle = 'Local preview — no orchestrator to poke; nothing is sent.';
+      case HarnessConn.backendOnly:
+        subtitle = 'Writes the poke — the orchestrator may not be reading yet.';
+      case HarnessConn.live:
+        subtitle = 'Bump the poke — wake the loop now.';
+    }
     return Card(
       color: Colors.white.withValues(alpha: 0.04),
       margin: const EdgeInsets.only(bottom: 8),
@@ -312,22 +328,23 @@ class _PokeTileState extends ConsumerState<_PokeTile> {
         side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
       ),
       child: ListTile(
+        enabled: !local,
         leading: Icon(
           _poked ? Icons.check_circle : Icons.notifications_active_outlined,
-          color: HarnessTheme.accent,
+          color: local ? Colors.white24 : HarnessTheme.accent,
         ),
         title: Text(
           _poked ? 'Poked' : 'Poke the orchestrator',
-          style: const TextStyle(
-            color: Colors.white,
+          style: TextStyle(
+            color: local ? Colors.white38 : Colors.white,
             fontWeight: FontWeight.w600,
           ),
         ),
-        subtitle: const Text(
-          'Bump system/orchestratorPoke — wake the loop now.',
-          style: TextStyle(color: Colors.white54, fontSize: 12),
+        subtitle: Text(
+          subtitle,
+          style: const TextStyle(color: Colors.white54, fontSize: 12),
         ),
-        onTap: _poked ? null : _poke,
+        onTap: (local || _poked) ? null : _poke,
       ),
     );
   }

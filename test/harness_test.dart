@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart' show XFile;
 import 'package:stock_track/core/utils/harness_logger.dart';
@@ -5,6 +7,8 @@ import 'package:stock_track/features/dev/chat/models/chat_item.dart';
 import 'package:stock_track/features/dev/chat/services/chat_export.dart';
 import 'package:stock_track/features/dev/chat/services/chat_upload_service.dart';
 import 'package:stock_track/features/dev/dev_gate.dart';
+import 'package:stock_track/features/dev/harness_connectivity.dart';
+import 'package:stock_track/features/dev/overlay/single_instance_launcher.dart';
 import 'package:stock_track/features/dev/report_queue/models/report.dart';
 import 'package:stock_track/features/dev/report_queue/models/report_filter.dart';
 import 'package:stock_track/features/dev/report_queue/services/report_repository.dart';
@@ -441,5 +445,119 @@ void main() {
         expect(r.verifiedByUser, isFalse);
       },
     );
+  });
+
+  group('SingleInstanceLauncher (overlay CORRECTION — duplicate/exclusive/self-heal)', () {
+    setUp(SingleInstanceLauncher.resetForTest);
+
+    test('duplicate guard: a second open under the same key is a no-op', () async {
+      final gate = Completer<void>();
+      var opens = 0;
+      Future<void> open() {
+        opens++;
+        return gate.future;
+      }
+
+      SingleInstanceLauncher.guard<void>('k', open);
+      expect(SingleInstanceLauncher.isOpen('k'), isTrue);
+      // Re-tap while open → NOT opened again (no stacked duplicate surface).
+      SingleInstanceLauncher.guard<void>('k', open);
+      expect(opens, 1);
+
+      // Latch clears on the returned future's completion, however it closes.
+      gate.complete();
+      await Future<void>.delayed(Duration.zero);
+      expect(SingleInstanceLauncher.isOpen('k'), isFalse);
+    });
+
+    test('self-heal: a synchronous throw releases the latch (can reopen)', () {
+      expect(
+        () => SingleInstanceLauncher.guard<void>(
+          'k',
+          () => throw StateError('boom'),
+        ),
+        throwsStateError,
+      );
+      // The key is NOT stuck open — a failed launch can be retried.
+      expect(SingleInstanceLauncher.isOpen('k'), isFalse);
+    });
+
+    test('exclusive swap: opening one exclusive surface dismisses the other', () async {
+      final a = Completer<void>();
+      var aDismissed = false;
+      SingleInstanceLauncher.guard<void>(
+        'a',
+        () => a.future,
+        exclusive: true,
+        dismiss: () {
+          aDismissed = true;
+          if (!a.isCompleted) a.complete(); // dismissing closes it
+        },
+      );
+      expect(SingleInstanceLauncher.isOpen('a'), isTrue);
+
+      // Opening another EXCLUSIVE surface first dismisses 'a' (one at a time).
+      final b = Completer<void>();
+      SingleInstanceLauncher.guard<void>('b', () => b.future, exclusive: true);
+      await Future<void>.delayed(Duration.zero);
+      expect(aDismissed, isTrue);
+      expect(SingleInstanceLauncher.isOpen('a'), isFalse);
+      expect(SingleInstanceLauncher.isOpen('b'), isTrue);
+
+      b.complete();
+      await Future<void>.delayed(Duration.zero);
+      expect(SingleInstanceLauncher.isOpen('b'), isFalse);
+    });
+
+    test('a non-exclusive surface is left alone when an exclusive one opens', () async {
+      final sheet = Completer<void>();
+      SingleInstanceLauncher.guard<void>('sheet', () => sheet.future); // not exclusive
+      final ex = Completer<void>();
+      SingleInstanceLauncher.guard<void>('ex', () => ex.future, exclusive: true);
+      await Future<void>.delayed(Duration.zero);
+      // The non-exclusive sheet is untouched by the exclusive open.
+      expect(SingleInstanceLauncher.isOpen('sheet'), isTrue);
+      expect(SingleInstanceLauncher.isOpen('ex'), isTrue);
+      sheet.complete();
+      ex.complete();
+      await Future<void>.delayed(Duration.zero);
+    });
+  });
+
+  group('resolveHarnessConn (honest mode banner — labeling CORRECTION)', () {
+    test('firebase mode + bridge off (committed default) → backendOnly', () {
+      // The shipped default: kHarnessMode=firebase, orchestratorBridge='off'.
+      expect(kHarnessMode, HarnessMode.firebase);
+      expect(HarnessConfig.orchestratorBridge, 'off');
+      expect(resolveHarnessConn(), HarnessConn.backendOnly);
+    });
+
+    test('copy is honest + config-driven for every state', () {
+      // live → nothing shown; the other two are non-empty warnings.
+      expect(harnessConnMessage(HarnessConn.live), isEmpty);
+      expect(
+        harnessConnMessage(HarnessConn.localPreview),
+        contains('Local preview'),
+      );
+      expect(
+        harnessConnMessage(HarnessConn.backendOnly),
+        contains('Orchestrator'),
+      );
+      // The backend line names the CONFIG label, never a hardcoded project noun —
+      // so a different project.config.json relabels the banner automatically.
+      expect(
+        harnessBackendLine(HarnessConn.backendOnly),
+        contains(HarnessConfig.backendLabel),
+      );
+      expect(
+        harnessBackendLine(HarnessConn.localPreview),
+        contains('local preview'),
+      );
+      // The local-preview copy must NOT imply a backend — it stays on-device.
+      expect(
+        harnessConnMessage(HarnessConn.localPreview),
+        contains('this device'),
+      );
+    });
   });
 }

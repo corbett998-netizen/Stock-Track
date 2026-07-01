@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../../harness/harness_config.g.dart';
+import '../../harness_mode_banner.dart';
 import '../../harness_theme.dart';
 import '../../services/harness_providers.dart';
 import '../controllers/chat_compose_controller.dart';
@@ -248,6 +249,9 @@ class _OrchestratorChatScreenState extends ConsumerState<OrchestratorChatScreen>
         top: false,
         child: Column(
           children: [
+            // Honest mode banner — tells the owner whether a message will actually
+            // reach an orchestrator (local preview / not-reading-yet / connected).
+            const HarnessModeBanner(),
             Expanded(
               child: Stack(
                 children: [
