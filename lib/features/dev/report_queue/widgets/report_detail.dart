@@ -60,7 +60,8 @@ class ReportDetail extends StatelessWidget {
             const SizedBox(height: 10),
           ],
           if ((report.appBuild ?? '').isNotEmpty ||
-              (report.platform ?? '').isNotEmpty) ...[
+              (report.platform ?? '').isNotEmpty ||
+              (report.region ?? '').trim().isNotEmpty) ...[
             _metaLine(),
             const SizedBox(height: 8),
           ],
@@ -147,12 +148,15 @@ class ReportDetail extends StatelessWidget {
     );
   }
 
-  /// Capture context — the build that produced the report + the platform. Answers
-  /// "which build / device is this bug on?" at a glance.
+  /// Capture context — the build that produced the report, the platform, and the
+  /// SCREEN the owner was on. Answers "which build / device / screen is this bug
+  /// on?" at a glance (screen-context is the fastest triage signal).
   Widget _metaLine() {
+    final region = (report.region ?? '').trim();
     final parts = <String>[
       if ((report.appBuild ?? '').isNotEmpty) 'build ${report.appBuild}',
       if ((report.platform ?? '').isNotEmpty) report.platform!,
+      if (region.isNotEmpty) 'on $region',
     ];
     return Row(
       children: [

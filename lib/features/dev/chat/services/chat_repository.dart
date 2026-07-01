@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../../../harness/harness_config.g.dart';
+import '../../services/harness_local_store.dart';
 import '../models/chat_item.dart';
 
 /// THE data-access seam for the owner↔orchestrator chat — one place that owns the
@@ -148,14 +149,38 @@ class FirebaseChatRepository implements ChatRepository {
   }
 }
 
-/// In-memory chat for the Rung-0 demo (no Firebase). Seeded with a short thread so
-/// the ported UI is visibly usable before Brandon enables the backend. To keep the
-/// demo honest, it does NOT fabricate an orchestrator — the owner's sends just
-/// persist to memory (the real two-way channel needs easy-stock-track + ADC).
+/// In-memory chat for the Rung-0 demo (no Firebase), now DURABLE across app restart
+/// via a [HarnessLocalStore] write-through (the mock path used to reset to seeds on
+/// every launch). The store defaults to [InMemoryHarnessLocalStore] so existing
+/// callers / tests that construct it with no args keep the old in-memory behaviour;
+/// lib/main.dart passes the shared prefs-backed store in mock mode.
+///
+/// To keep the demo honest, it still does NOT fabricate an orchestrator — the
+/// owner's sends just persist locally (the real two-way channel needs the backend).
 class MockChatRepository implements ChatRepository {
-  MockChatRepository() {
+  MockChatRepository([HarnessLocalStore? store])
+    : _store = store ?? InMemoryHarnessLocalStore() {
+    final loaded = _store.loadAll(HarnessStoreKeys.chat);
+    if (loaded.isEmpty) {
+      // Fresh install (empty store) → seed AND persist, so seeds appear only once
+      // and the owner's later messages accumulate on top of them across restarts.
+      _seed();
+    } else {
+      _messages.addAll(
+        loaded.values.map(ChatItem.fromMap).toList()
+          ..sort((a, b) => a.createdAtMs.compareTo(b.createdAtMs)),
+      );
+    }
+  }
+
+  final HarnessLocalStore _store;
+  final List<ChatItem> _messages = <ChatItem>[];
+  final StreamController<List<ChatItem>> _controller =
+      StreamController<List<ChatItem>>.broadcast();
+
+  void _seed() {
     final base = DateTime.now().millisecondsSinceEpoch - 120000;
-    _messages.addAll([
+    final seeds = <ChatItem>[
       ChatItem(
         id: 'seed-1',
         role: 'orchestrator',
@@ -170,12 +195,12 @@ class MockChatRepository implements ChatRepository {
         text: 'Nice — same chat surface, different app.',
         createdAtMs: base + 30000,
       ),
-    ]);
+    ];
+    _messages.addAll(seeds);
+    for (final s in seeds) {
+      unawaited(_store.put(HarnessStoreKeys.chat, s.id, s.toMap()));
+    }
   }
-
-  final List<ChatItem> _messages = <ChatItem>[];
-  final StreamController<List<ChatItem>> _controller =
-      StreamController<List<ChatItem>>.broadcast();
 
   List<ChatItem> get _snapshot => List.unmodifiable(_messages);
 
@@ -195,15 +220,16 @@ class MockChatRepository implements ChatRepository {
     String via = 'text',
     String? imageSource,
   }) async {
-    _messages.add(
-      ChatItem(
-        id: 'local-${DateTime.now().microsecondsSinceEpoch}',
-        role: HarnessConfig.ownerRole,
-        text: text,
-        createdAtMs: DateTime.now().millisecondsSinceEpoch,
-        imageUrl: imageSource,
-      ),
+    final item = ChatItem(
+      id: 'local-${DateTime.now().microsecondsSinceEpoch}',
+      role: HarnessConfig.ownerRole,
+      text: text,
+      createdAtMs: DateTime.now().millisecondsSinceEpoch,
+      imageUrl: imageSource,
     );
+    _messages.add(item);
+    // Write through so the sent message survives an app restart (mock path).
+    unawaited(_store.put(HarnessStoreKeys.chat, item.id, item.toMap()));
     _controller.add(_snapshot);
   }
 

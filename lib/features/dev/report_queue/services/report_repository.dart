@@ -4,10 +4,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../../../core/utils/current_screen_tracker.dart';
 import '../../../../core/utils/harness_app_build.dart';
 import '../../../../core/utils/harness_logger.dart';
 import '../../../../harness/harness_config.g.dart';
 import '../../report_capture/services/screenshot_upload_service.dart';
+import '../../services/harness_local_store.dart';
 import '../models/report.dart';
 
 /// THE Firestore seam for the report flow — every read/write against
@@ -84,10 +86,12 @@ class FirebaseReportRepository implements ReportRepository {
       'file: "${_firstLine(note)}" (${screenshots.length} shots)',
     );
     final shots = await ScreenshotUploadService.upload(screenshots, uid: uid);
-    // Evidence captured at submit: device-log tail, capture platform, and the app
-    // build that produced it (logs-first, answerable "which build").
+    // Evidence captured at submit: device-log tail, capture platform, the app build
+    // that produced it (logs-first, answerable "which build"), and the SCREEN the
+    // owner was on ("which screen was I on" — the fastest triage signal).
     final logsInline = harnessLog.inlineTail();
     final appBuild = await resolveHarnessAppBuild();
+    final screen = CurrentScreenTracker.currentScreen;
     final ref = await _reports.add(<String, dynamic>{
       'userId': uid,
       'note': note,
@@ -98,6 +102,7 @@ class FirebaseReportRepository implements ReportRepository {
       'createdAt': FieldValue.serverTimestamp(),
       'deviceInfo': <String, dynamic>{'platform': defaultTargetPlatform.name},
       'appBuild': appBuild,
+      if (screen != null && screen.isNotEmpty) 'region': screen,
       if (logsInline.isNotEmpty) 'logsInline': logsInline,
       if (shots.isNotEmpty) 'screenshots': shots,
     });
@@ -213,12 +218,46 @@ class FirebaseReportRepository implements ReportRepository {
       });
 }
 
-/// In-memory reports for the Rung-0 demo (no Firebase). Seeded with one sample
-/// report so the queue + triage controls are visibly usable before Brandon enables
-/// the backend.
+/// In-memory reports for the Rung-0 demo (no Firebase), now DURABLE across app
+/// restart via a [HarnessLocalStore] write-through. The mock path used to hold the
+/// ENTIRE report/queue/dogfood loop in memory, so every restart re-seeded and lost
+/// every filed report + Works/Still-broken verdict + triage/comment. Because the
+/// ready-to-test surface is DERIVED from report fields (`awaitingVerification` etc.),
+/// persisting the reports collection makes the whole dogfood loop survive restart —
+/// no separate store needed. The store defaults to [InMemoryHarnessLocalStore] so
+/// existing callers / tests that construct it with no args keep the old behaviour;
+/// lib/main.dart passes the shared prefs-backed store in mock mode.
 class MockReportRepository implements ReportRepository {
-  MockReportRepository() {
-    _reports.add(
+  MockReportRepository([HarnessLocalStore? store])
+    : _store = store ?? InMemoryHarnessLocalStore() {
+    final loaded = _store.loadAll(HarnessStoreKeys.reports);
+    if (loaded.isEmpty) {
+      // Fresh install (empty store) → seed AND persist. Re-seed is gated on
+      // box-EMPTY (not "seed id absent") so a cleared seed is never re-injected.
+      _seed();
+    } else {
+      for (final entry in loaded.entries) {
+        final json = entry.value;
+        _reports.add(
+          Report.fromMap(
+            entry.key,
+            json,
+            // fromMap does NOT read createdAtMs from the map — pass it back from the
+            // stored value explicitly (the load-bearing round-trip detail).
+            createdAtMs: (json['createdAtMs'] as num?)?.toInt() ?? 0,
+          ),
+        );
+      }
+    }
+  }
+
+  final HarnessLocalStore _store;
+  final List<Report> _reports = <Report>[];
+  final StreamController<List<Report>> _controller =
+      StreamController<List<Report>>.broadcast();
+
+  void _seed() {
+    final seeds = <Report>[
       Report.fromMap(
         'seed-report-1',
         <String, dynamic>{
@@ -229,10 +268,8 @@ class MockReportRepository implements ReportRepository {
         },
         createdAtMs: DateTime.now().millisecondsSinceEpoch - 300000,
       ),
-    );
-    // A seeded dogfood check-item so the "Ready to test" surface is visibly usable
-    // in mock mode (mirrors what `stocktrack_chat.js --build` writes).
-    _reports.add(
+      // A seeded dogfood check-item so the "Ready to test" surface is visibly usable
+      // in mock mode (mirrors what `stocktrack_chat.js --build` writes).
       Report.fromMap(
         'seed-checkitem-1',
         <String, dynamic>{
@@ -246,12 +283,17 @@ class MockReportRepository implements ReportRepository {
         },
         createdAtMs: DateTime.now().millisecondsSinceEpoch - 60000,
       ),
-    );
+    ];
+    _reports.addAll(seeds);
+    for (final r in seeds) {
+      _persist(r);
+    }
   }
 
-  final List<Report> _reports = <Report>[];
-  final StreamController<List<Report>> _controller =
-      StreamController<List<Report>>.broadcast();
+  /// Write one report through to the durable store (best-effort). The in-memory
+  /// `_reports` list stays the live source; the store is its durable mirror.
+  void _persist(Report r) =>
+      unawaited(_store.put(HarnessStoreKeys.reports, r.id, r.toMap()));
 
   List<Report> get _snapshot {
     final copy = List<Report>.of(_reports)
@@ -267,6 +309,11 @@ class MockReportRepository implements ReportRepository {
     final i = _indexOf(id);
     if (i == -1) return;
     _reports[i] = f(_reports[i]);
+    // Single write-through choke-point: every triage/dogfood transition funnels
+    // through here (Works / Still-broken / reopen / flag / comment / status /
+    // manualResolved / triageDecision), so persisting here makes all of them
+    // survive restart.
+    _persist(_reports[i]);
     _emit();
   }
 
@@ -285,21 +332,27 @@ class MockReportRepository implements ReportRepository {
     harnessLog.report('file (mock): "${note.split('\n').first.trim()}"');
     final logsInline = harnessLog.inlineTail();
     final appBuild = await resolveHarnessAppBuild();
+    final screen = CurrentScreenTracker.currentScreen;
     final id = 'local-${DateTime.now().microsecondsSinceEpoch}';
-    _reports.add(
-      Report.fromMap(id, <String, dynamic>{
-        'note': note,
-        'area': 'general',
-        'status': 'new',
-        // Local file paths (Storage off / mock) — rendered on-device.
-        'screenshots': [
-          for (final s in screenshots) {'localPath': s.path},
-        ],
-        'deviceInfo': <String, dynamic>{'platform': defaultTargetPlatform.name},
-        'appBuild': appBuild,
-        if (logsInline.isNotEmpty) 'logsInline': logsInline,
-      }, createdAtMs: DateTime.now().millisecondsSinceEpoch),
-    );
+    final createdAtMs = DateTime.now().millisecondsSinceEpoch;
+    final report = Report.fromMap(id, <String, dynamic>{
+      'note': note,
+      'area': 'general',
+      'status': 'new',
+      // Local file paths (Storage off / mock) — rendered on-device.
+      'screenshots': [
+        for (final s in screenshots) {'localPath': s.path},
+      ],
+      'deviceInfo': <String, dynamic>{'platform': defaultTargetPlatform.name},
+      'appBuild': appBuild,
+      // Screen-context ("which screen was I on") captured at submit — the report
+      // keeps it (with the log-tail + build/platform) and it renders on reload.
+      if (screen != null && screen.isNotEmpty) 'region': screen,
+      if (logsInline.isNotEmpty) 'logsInline': logsInline,
+    }, createdAtMs: createdAtMs);
+    _reports.add(report);
+    // Write through so a filed report + its evidence survives an app restart.
+    _persist(report);
     _emit();
     return id;
   }

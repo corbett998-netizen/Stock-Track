@@ -10,7 +10,9 @@ import 'features/dev/chat/services/chat_repository.dart';
 import 'features/dev/dev_gate.dart';
 import 'features/dev/report_queue/services/report_repository.dart';
 import 'features/dev/services/harness_auth.dart';
+import 'features/dev/services/harness_local_store.dart';
 import 'features/dev/services/harness_providers.dart';
+import 'harness/harness_config.g.dart';
 
 Future<void> main() async {
   // ===========================================================
@@ -27,6 +29,11 @@ Future<void> main() async {
   // ===========================================================
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
+
+  // Resolve the harness trio for the chosen mode. Only mock mode opens the durable
+  // local store (so the mock/local path survives restart); the firebase path is
+  // untouched — Firestore already persists server-side.
+  final harnessOverrides = await _harnessOverrides();
 
   runApp(
     ProviderScope(
@@ -46,7 +53,7 @@ Future<void> main() async {
         inventoryRepositoryProvider.overrideWithValue(MockInventoryRepository()),
         installationRepositoryProvider
             .overrideWithValue(MockInstallationRepository()),
-        ..._harnessOverrides(),
+        ...harnessOverrides,
       ],
       child: const StockTrackApp(),
     ),
@@ -54,7 +61,12 @@ Future<void> main() async {
 }
 
 /// The harness trio, selected by [kHarnessMode].
-List<Override> _harnessOverrides() {
+///
+/// firebase: unchanged — no store, no extra awaits (Firestore is the durable store).
+/// mock: opens a durable [HarnessLocalStore] (namespaced from config) and threads it
+/// into the mock chat + report repos so chat, reports, the queue, and the derived
+/// dogfood/ready-to-test state survive an app restart.
+Future<List<Override>> _harnessOverrides() async {
   switch (kHarnessMode) {
     case HarnessMode.firebase:
       return [
@@ -63,10 +75,16 @@ List<Override> _harnessOverrides() {
         reportRepositoryProvider.overrideWithValue(FirebaseReportRepository()),
       ];
     case HarnessMode.mock:
+      // Namespace the store per-app from config (never a literal here) so a
+      // multi-app install can never collide.
+      final store = await SharedPrefsHarnessLocalStore.create(
+        namespace: 'harness_${HarnessConfig.projectName}',
+        collections: const [HarnessStoreKeys.chat, HarnessStoreKeys.reports],
+      );
       return [
         harnessAuthProvider.overrideWithValue(MockHarnessAuth()),
-        chatRepositoryProvider.overrideWithValue(MockChatRepository()),
-        reportRepositoryProvider.overrideWithValue(MockReportRepository()),
+        chatRepositoryProvider.overrideWithValue(MockChatRepository(store)),
+        reportRepositoryProvider.overrideWithValue(MockReportRepository(store)),
       ];
   }
 }

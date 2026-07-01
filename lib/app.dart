@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import 'core/navigation/app_shell.dart';
 import 'core/theme/app_theme.dart';
+import 'core/utils/current_screen_tracker.dart';
+import 'features/dev/dev_gate.dart';
 import 'features/dev/harness_overlay.dart';
 
 /// Root app widget — dark theme + the bottom-nav shell. No auth gate in slice 1
@@ -31,6 +33,9 @@ class StockTrackApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: buildStockTrackTheme(),
       navigatorKey: navigatorKey,
+      // Dev-gated screen-context capture: named routes feed the tracker so a filed
+      // report knows "which screen was I on". Inert in a release build.
+      navigatorObservers: [if (kHarnessEnabled) HarnessRouteObserver()],
       builder: (context, child) => HarnessOverlay(
         navigatorKey: navigatorKey,
         child: child ?? const SizedBox.shrink(),

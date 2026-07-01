@@ -28,4 +28,24 @@ class ChatItem {
   final String? imageUrl;
 
   bool get hasImage => (imageUrl ?? '').isNotEmpty;
+
+  /// JSON for the durable local store (mock/local path). Self-contained — carries
+  /// its own [createdAtMs] so [fromMap] can rebuild it without any side channel.
+  Map<String, dynamic> toMap() => <String, dynamic>{
+    'id': id,
+    'role': role,
+    'text': text,
+    'createdAtMs': createdAtMs,
+    if (imageUrl != null && imageUrl!.isNotEmpty) 'imageUrl': imageUrl,
+  };
+
+  /// Rebuild from a stored map (reads [createdAtMs] from the map itself). Tolerant
+  /// of missing fields so an older/partial record can never crash the load.
+  static ChatItem fromMap(Map<String, dynamic> m) => ChatItem(
+    id: (m['id'] ?? '').toString(),
+    role: (m['role'] ?? 'orchestrator').toString(),
+    text: (m['text'] ?? '').toString(),
+    createdAtMs: (m['createdAtMs'] as num?)?.toInt() ?? 0,
+    imageUrl: m['imageUrl'] as String?,
+  );
 }

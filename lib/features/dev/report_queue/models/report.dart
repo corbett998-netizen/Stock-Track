@@ -95,8 +95,35 @@ class Report {
   static String _clip(String s, [int max = 80]) =>
       s.length > max ? '${s.substring(0, max)}…' : s;
 
+  /// JSON for the durable local store (mock/local path). Writes EVERY field so a
+  /// round-trip is lossless — crucially [createdAtMs] (which [fromMap] does NOT read
+  /// from the map, so the load path must pass it back explicitly), plus the dogfood
+  /// verify fields (awaitingVerification / verifiedByUser) so the ready-to-test loop
+  /// survives restart, and the triage state (status / comments / flag / region).
+  /// Screenshots are written as the flat `List<String>` that [fromMap] round-trips
+  /// (`s is String`). Additive/nullable fields are omitted when empty.
+  Map<String, dynamic> toMap() => <String, dynamic>{
+    'id': id,
+    'createdAtMs': createdAtMs,
+    'area': area,
+    'status': status,
+    'note': note,
+    'screenshots': screenshots,
+    'comments': comments,
+    'flaggedForOrchestrator': flaggedForOrchestrator,
+    'manualResolved': manualResolved,
+    'awaitingVerification': awaitingVerification,
+    'verifiedByUser': verifiedByUser,
+    if (recommendedFix != null) 'recommendedFix': recommendedFix,
+    if (triageDecision != null) 'triageDecision': triageDecision,
+    if (logsInline != null) 'logsInline': logsInline,
+    if (deviceInfo != null) 'deviceInfo': deviceInfo,
+    if (appBuild != null) 'appBuild': appBuild,
+    if (region != null) 'region': region,
+  };
+
   /// Build from a plain map (Firestore doc data OR mock state). [createdAtMs] is
-  /// pre-resolved by the caller (Firestore Timestamp → millis; mock passes it
+  /// pre-resolved by the caller (Firestore Timestamp → millis; mock/store passes it
   /// directly). Screenshots are resolved to a flat list of download URLs.
   static Report fromMap(
     String id,

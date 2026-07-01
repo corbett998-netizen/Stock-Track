@@ -5,6 +5,7 @@ import '../../features/dashboard/dashboard_screen.dart';
 import '../../features/inventory/inventory_screen.dart';
 import '../../features/scan/scan_screen.dart';
 import '../theme/app_colors.dart';
+import '../utils/current_screen_tracker.dart';
 import 'nav_providers.dart';
 
 /// Bottom-nav shell hosting the 3 slice-1 tabs (Dashboard · Inventory · Scan).
@@ -20,9 +21,19 @@ class AppShell extends ConsumerWidget {
     ScanScreen(),
   ];
 
+  /// App-layer label map for screen-context capture. ST nav is an [IndexedStack] of
+  /// tabs (not Navigator routes), so the shell feeds the current tab label to the
+  /// generic [CurrentScreenTracker]; the harness stays app-agnostic.
+  static const _tabLabels = <String>['Dashboard', 'Inventory', 'Scan'];
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final index = ref.watch(selectedTabProvider);
+    // Runs on first build + every tab switch (index is watched). Pure static set —
+    // no rebuild side effect. A filed report reads this as its screen-context.
+    if (index >= 0 && index < _tabLabels.length) {
+      CurrentScreenTracker.update(_tabLabels[index]);
+    }
 
     return Scaffold(
       appBar: AppBar(
