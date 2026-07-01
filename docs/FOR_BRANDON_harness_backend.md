@@ -23,9 +23,9 @@ for two-way chat) adding one email address as a member. **~10 minutes.**
 If anyone ever asks you to send a key file or a token, the answer is no — that's not how
 this works.
 
-**Whose email to add (Step 4):** ideally a **dedicated "ops" Google account** made just
-for this (cleanest — easy to remove later). If that's not handy, Pete's Google account is
-fine. Either way it's just a member with a limited role — no key changes hands.
+**Whose email to add (Step 4):** **`peter.holmes.mitra@gmail.com`** (Pete's Google account).
+It's just added as a member with one limited role — no key changes hands, and it can be
+removed any time.
 
 ---
 
@@ -51,16 +51,14 @@ with **no login screen** for anyone.
 These make sure each phone can only ever read/write **its own** chat and reports. We've
 already written the exact rules and committed them in the app's code:
 - Database rules: **`firestore.rules`** (in the Stock-Track repo root)
-- File/screenshot rules: **`storage.rules`** (in the Stock-Track repo root)
 
-Easiest path: **send those two files to whoever runs the Firebase CLI** (us), and after
-Step 4 we deploy them for you with one command — no console editing needed. If you'd
-rather do it yourself: Firestore console → **Rules** tab → paste the contents of
-`firestore.rules` → **Publish**; and Storage console → **Rules** tab → paste
-`storage.rules` → **Publish**.
+Easiest path: after Step 4 **we deploy it for you with one command** — no console editing
+needed. If you'd rather do it yourself: Firestore console → **Rules** tab → paste the
+contents of `firestore.rules` → **Publish**.
 
-*(If you don't plan to attach screenshots to reports, you can skip Storage for now — chat
-and text reports work without it.)*
+*(Storage/screenshots are **OFF for now** — text chat and text reports are all we need for
+the first proof, so you don't touch Storage at all. We'll add photo attachments as a small
+second step later.)*
 
 ### Step 4 — Add the ops email as a member (only needed for two-way chat)
 The app can already save chat + reports into your project after Steps 1–3. This last step
@@ -68,11 +66,10 @@ is only so **we can read your messages and reply back** from our side.
 1. Firebase console → the **gear icon (Project settings) → Users and permissions**
    (or Google Cloud console → **IAM & Admin → IAM** for the same project).
 2. Click **Add member**.
-3. Enter the **ops Google account email** (dedicated account preferred, else Pete's).
-4. Give it these **minimum roles** (nothing more):
-   - **Cloud Datastore User** — role id `roles/datastore.user` (read/write Firestore)
-   - **Storage Object Admin** — role id `roles/storage.objectAdmin` (only if you enabled
-     Storage in Step 3, for report screenshots)
+3. Enter this exact email: **`peter.holmes.mitra@gmail.com`**
+4. Give it **one** role, nothing more:
+   - **Cloud Datastore User** — role id `roles/datastore.user` (read/write Firestore only)
+   - *(No Storage role — we're keeping Storage off for now.)*
 5. **Save.**
 
 That's everything. No keys, no tokens, no files leave your project.
@@ -92,8 +89,8 @@ anything but Stock-Track.
 ## What you'll be able to do once this is on
 - Open Stock-Track → tap the little **support** button (dev builds) → **owner tools**.
 - **Chat** with us right inside the app.
-- **Report a problem** with a note (and a screenshot) → it lands in your **report list**,
-  where you can mark it, comment, or flag it.
+- **Report a problem** with a note → it lands in your **report list**, where you can mark
+  it, comment, or flag it. *(Photo attachments come in a later step once Storage is on.)*
 - We can **read and reply** to your messages from our side.
 
 Any questions, just ask — happy to hop on a call and click through it together.
