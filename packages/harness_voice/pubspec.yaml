@@ -1,0 +1,26 @@
+name: harness_voice
+description: >-
+  Reusable on-device voice-dictation module for the owner/operator harness. A
+  floating mic that transcribes speech into any text sink while the owner keeps
+  using the app — engine-agnostic (phone on-device recognizer or a bundled
+  offline engine), offline-first, private. This is the reusable-harness
+  standard's voice spine, ported verbatim from the reference mic pattern.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+  flutter: ">=3.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # Native/FFI offline speech engine. Pulls only `ffi` transitively — NO `web`
+  # package, so it never clashes with a host app's Firebase v2 stack. This is the
+  # exact package + version the reference pattern proved for the bundled engine.
+  sherpa_onnx: ^1.13.2
+
+dev_dependencies:
+  flutter_lints: ^3.0.0
+
+flutter:

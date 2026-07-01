@@ -4,13 +4,15 @@ import 'package:flutter/widgets.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../../core/utils/harness_logger.dart';
-import '../../../../core/utils/harness_speech.dart';
 import '../services/chat_repository.dart';
 import '../services/chat_upload_service.dart';
+import 'chat_voice_controller.dart';
 
-/// Send orchestration for the owner↔orchestrator chat. Chunk 5 adds a staged image
-/// attachment (Storage-gated upload) + OS mic dictation into the composer. Owns the
-/// `sending` flag and the send/retry loop.
+/// Send orchestration for the owner↔orchestrator chat. Adds a staged image
+/// attachment (Storage-gated upload) + app-owned native mic dictation into the
+/// composer (the reference mic pattern, via [ChatVoiceController] — reuses the
+/// single shared recognizer, snapshots the report draft so chat speech never leaks
+/// into a report). Owns the `sending` flag and the send/retry loop.
 class ChatComposeController {
   ChatComposeController({
     required this.repository,
@@ -18,7 +20,14 @@ class ChatComposeController {
     required this.controller,
     required this.notify,
     required this.snack,
-  });
+    VoidCallback? autoScroll,
+  }) {
+    _voice = ChatVoiceController(
+      controller: controller,
+      notify: notify,
+      autoScroll: autoScroll,
+    )..start();
+  }
 
   final ChatRepository repository;
   final String uid;
@@ -31,16 +40,19 @@ class ChatComposeController {
   /// the local cache synchronously + durably queues it).
   static const Duration _sendAckTimeout = Duration(seconds: 8);
 
-  final HarnessSpeech _speech = HarnessSpeech();
-  bool _listening = false;
+  late final ChatVoiceController _voice;
 
   XFile? _staged;
   bool _sending = false;
 
   bool get sending => _sending;
-  bool get listening => _listening;
+  bool get listening => _voice.isListening;
   XFile? get staged => _staged;
   bool get hasStaged => _staged != null;
+
+  /// Forward the composer's onChanged so the owner typing tears down a live mic
+  /// turn cleanly (keyboard text becomes authoritative).
+  void handleUserTyping() => _voice.handleUserTyping();
 
   // ----- Image attachment -----
   void stage(XFile image) {
@@ -53,39 +65,18 @@ class ChatComposeController {
     notify();
   }
 
-  // ----- Mic dictation (OS speech seam) -----
+  // ----- Mic dictation (app-owned native recognizer, via ChatVoiceController) --
   //
-  // Continuous-dictation contract: the seam owns base+append and re-arms across
-  // pauses. The composer just renders the transcript the seam emits and reflects the
-  // seam's listening state — it never infers "stop" from a single finalised utterance.
+  // The recognizer is app-owned + continuous (re-arms across pauses); the borrow
+  // controller mirrors the dictated delta into the chat input and isolates it from
+  // the shared report draft. This just toggles + surfaces a permission failure.
   Future<void> toggleMic() async {
-    if (_listening) {
-      await _speech.stop(); // _listening flips off via onListeningChanged
-      return;
-    }
-    final ok = await _speech.start(
-      base: controller.text,
-      onTranscript: (t) {
-        controller.text = t;
-        controller.selection = TextSelection.collapsed(
-          offset: controller.text.length,
-        );
-        notify();
-      },
-      onListeningChanged: (listening) {
-        _listening = listening;
-        notify();
-      },
-      onError: snack,
-    );
-    if (!ok) {
-      snack('Mic unavailable — check the microphone permission.');
-    }
+    await _voice.toggleMic();
   }
 
   Future<void> send() async {
     if (_sending) return;
-    if (_listening) await toggleMic();
+    if (_voice.isListening) await _voice.stop();
     final text = controller.text.trim();
     if (text.isEmpty && _staged == null) return;
     _sending = true;
@@ -125,6 +116,7 @@ class ChatComposeController {
     controller.clear();
     _staged = null;
     _sending = false;
+    _voice.markSent(); // clear per-turn dictation state so the next message is fresh
     notify();
     harnessLog.chat(queuedOffline ? 'send queued offline' : 'send OK');
     if (queuedOffline) {
@@ -132,5 +124,5 @@ class ChatComposeController {
     }
   }
 
-  void dispose() => _speech.dispose();
+  void dispose() => _voice.dispose();
 }

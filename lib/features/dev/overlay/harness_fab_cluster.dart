@@ -166,7 +166,16 @@ class _HarnessFabClusterState extends ConsumerState<HarnessFabCluster> {
             _grip(pos, applyDelta, persist),
             for (final spec in kHarnessTools) ...[
               const SizedBox(height: _gap),
-              HarnessToolButton(spec: spec, rootContext: rootCtx, uid: uid),
+              // A stateful in-place tool (e.g. the floating mic) renders its own
+              // constant-footprint widget; every other tool is a tap-to-launch FAB.
+              if (spec.builder != null)
+                SizedBox(
+                  width: _buttonSize,
+                  height: _buttonSize,
+                  child: spec.builder!(),
+                )
+              else
+                HarnessToolButton(spec: spec, rootContext: rootCtx, uid: uid),
             ],
           ],
         ),

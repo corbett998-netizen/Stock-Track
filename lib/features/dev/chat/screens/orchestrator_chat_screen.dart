@@ -62,6 +62,7 @@ class _OrchestratorChatScreenState extends ConsumerState<OrchestratorChatScreen>
       controller: _input,
       notify: _safeNotify,
       snack: _snack,
+      autoScroll: _autoScroll,
     );
     _messages.attach(widget.uid);
     _loadExportCursor();

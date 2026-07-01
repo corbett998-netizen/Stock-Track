@@ -10,6 +10,7 @@ import 'package:stock_track/features/dev/chat/services/chat_repository.dart';
 import 'package:stock_track/features/dev/overlay/harness_tool_button.dart';
 import 'package:stock_track/features/dev/overlay/harness_tools.dart';
 import 'package:stock_track/features/dev/report_queue/services/report_repository.dart';
+import 'package:stock_track/features/dev/voice/harness_voice_button.dart';
 import 'package:stock_track/features/dev/services/harness_auth.dart';
 import 'package:stock_track/features/dev/services/harness_providers.dart';
 
@@ -45,11 +46,13 @@ void main() {
     // The tested shell is still there…
     expect(find.text('Warehouse Dashboard'), findsOneWidget);
     // …with the whole config-driven button set floating directly on top as one
-    // draggable cluster (grip handle + one button per tool spec).
-    expect(
-      find.byType(HarnessToolButton),
-      findsNWidgets(kHarnessTools.length),
-    );
+    // draggable cluster (grip handle + one slot per tool spec). Launch-tools render
+    // a HarnessToolButton; a STATEFUL builder-tool (the floating mic) renders its own
+    // widget instead — so the button count is the launch-tools, and the mic is present.
+    final launchTools =
+        kHarnessTools.where((s) => s.builder == null).length;
+    expect(find.byType(HarnessToolButton), findsNWidgets(launchTools));
+    expect(find.byType(HarnessVoiceButton), findsOneWidget); // the floating mic
     expect(find.byIcon(Icons.drag_indicator), findsOneWidget); // the grip handle
   });
 

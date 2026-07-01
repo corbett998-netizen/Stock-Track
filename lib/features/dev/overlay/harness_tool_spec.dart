@@ -14,11 +14,15 @@ class HarnessToolSpec {
     required this.key,
     required this.icon,
     required this.label,
-    required this.launch,
+    this.launch,
+    this.builder,
     this.color,
     this.exclusive = false,
     this.badgeCount,
-  });
+  }) : assert(
+          launch != null || builder != null,
+          'a tool needs either a launch action or a custom builder',
+        );
 
   /// Unique single-instance key — the launcher latches open surfaces under this so a
   /// re-tap is a no-op and exclusive tools swap cleanly.
@@ -41,7 +45,15 @@ class HarnessToolSpec {
   /// Opens the tool. Receives the ROOT navigator context (an ancestor of a real
   /// Navigator/Overlay/ScaffoldMessenger, unlike the cluster's own context) and the
   /// resolved owner uid, and performs the actual push/sheet through the launcher.
-  final void Function(BuildContext rootContext, String uid) launch;
+  /// Null when the tool renders its own [builder] widget instead of a launch action.
+  final void Function(BuildContext rootContext, String uid)? launch;
+
+  /// A STATEFUL, in-place tool that renders its own widget in the cluster instead
+  /// of a tap-to-launch button (e.g. the floating mic, which toggles dictation in
+  /// place and shows live listening state). When non-null the cluster renders this
+  /// at the button's slot; [launch] is ignored. The widget must have a CONSTANT
+  /// footprint (the cluster is a fixed-size draggable column).
+  final Widget Function()? builder;
 
   /// Optional live badge count for this button. Called from the button's `build`
   /// with its `WidgetRef`, so it may `ref.watch(...)` a stream; returns 0 (or is

@@ -3,14 +3,19 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
-import '../../../../core/utils/harness_speech.dart';
+import '../../../../core/utils/current_screen_tracker.dart';
 import '../../harness_theme.dart';
 import '../../services/harness_providers.dart';
+import '../../voice/harness_report_draft.dart';
+import '../../voice/harness_voice_service.dart';
 
-/// File-a-report CAPTURE (harness point 2) — a note + optional screenshots →
-/// writes `stockIssueReports` in easy-stock-track. Chunk 5 adds mic-to-note
-/// dictation (OS speech seam) and a submit-success report-ID with a copy button.
-/// Screenshot upload is Storage-gated (renders locally when Storage is off).
+/// File-a-report CAPTURE — a note + optional screenshots → writes
+/// `stockIssueReports`. The note is backed by the shared [HarnessReportDraft], so
+/// a report DICTATED from the floating cluster mic (while dogfooding on another
+/// screen) hydrates here, keeping the SCREEN it was started on. Mic dictation uses
+/// the app-owned native recognizer ([HarnessVoiceService]) — the reference mic
+/// pattern — not a focused-field OS-keyboard seam. Screenshot upload is
+/// Storage-gated (renders locally when Storage is off).
 class ReportCaptureScreen extends ConsumerStatefulWidget {
   const ReportCaptureScreen({super.key, required this.uid});
 
@@ -24,43 +29,82 @@ class ReportCaptureScreen extends ConsumerStatefulWidget {
 class _ReportCaptureScreenState extends ConsumerState<ReportCaptureScreen> {
   final TextEditingController _note = TextEditingController();
   final ImagePicker _picker = ImagePicker();
-  final HarnessSpeech _speech = HarnessSpeech();
   final List<XFile> _shots = <XFile>[];
   bool _submitting = false;
   bool _listening = false;
 
+  /// Guard so draft→field syncs (mic appends) aren't re-written back to the draft
+  /// as if they were keyboard edits (which would loop).
+  bool _syncingFromDraft = false;
+
   static const int _maxShots = 4;
+
+  HarnessReportDraft get _draft => HarnessReportDraft.instance;
+  HarnessVoiceService get _voice => HarnessVoiceService.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    // Freeze the screen context at report-open if a floating-mic draft didn't
+    // already start one — so a keyboard report also attributes to the right screen.
+    if (!_draft.started) {
+      _draft.start(screen: CurrentScreenTracker.currentScreen);
+    }
+    // Hydrate from a mic-dictated (or resumed) draft.
+    _note.text = _draft.note;
+    _note.selection = TextSelection.collapsed(offset: _note.text.length);
+    _draft.addListener(_onDraftChanged);
+    _voice.addListener(_onVoiceChanged);
+    _listening = _voice.isListening;
+  }
 
   @override
   void dispose() {
-    _speech.dispose();
+    _draft.removeListener(_onDraftChanged);
+    _voice.removeListener(_onVoiceChanged);
+    // Don't leave a hot mic with no visible control if the owner leaves.
+    if (_voice.isListening) _voice.stop();
     _note.dispose();
     super.dispose();
   }
 
-  // Continuous-dictation contract: the seam owns base+append and re-arms across
-  // pauses. This screen renders the transcript the seam emits and reflects the seam's
-  // listening state — it never infers "stop" from a single finalised utterance.
+  /// Mic appended a final to the draft → reflect it in the field (guarded so our
+  /// own keyboard write-through doesn't recurse).
+  void _onDraftChanged() {
+    if (_syncingFromDraft) return;
+    if (_draft.note == _note.text) return;
+    _syncingFromDraft = true;
+    _note.text = _draft.note;
+    _note.selection = TextSelection.collapsed(offset: _note.text.length);
+    _syncingFromDraft = false;
+  }
+
+  void _onVoiceChanged() {
+    if (!mounted) return;
+    final listening = _voice.isListening;
+    final err = _voice.error;
+    setState(() => _listening = listening);
+    if (err != null && err.isNotEmpty) _snack(err);
+  }
+
+  /// Keyboard edits write through to the shared draft (so mic + typing mix and the
+  /// draft is the single source of truth the report is filed from).
+  void _onNoteChanged(String value) {
+    if (_syncingFromDraft) return;
+    _draft.setNote(value);
+  }
+
+  // App-owned continuous dictation into the shared draft — runs even while the
+  // note field isn't focused. The service owns start/append/re-arm; we just toggle
+  // and reflect its listening state.
   Future<void> _toggleMic() async {
     if (_listening) {
-      await _speech.stop(); // _listening flips off via onListeningChanged
+      await _voice.stop();
       return;
     }
-    final ok = await _speech.start(
-      base: _note.text,
-      onTranscript: (t) {
-        if (!mounted) return;
-        setState(() {
-          _note.text = t;
-          _note.selection = TextSelection.collapsed(offset: _note.text.length);
-        });
-      },
-      onListeningChanged: (listening) {
-        if (mounted) setState(() => _listening = listening);
-      },
-      onError: _snack,
-    );
-    if (!ok) {
+    await _voice.start();
+    final err = _voice.error;
+    if (err != null && err.isNotEmpty) {
       _snack('Mic unavailable — check the microphone permission.');
     }
   }
@@ -86,7 +130,7 @@ class _ReportCaptureScreenState extends ConsumerState<ReportCaptureScreen> {
       _snack('Add a note describing the issue.');
       return;
     }
-    if (_listening) await _toggleMic();
+    if (_listening) await _voice.stop();
     setState(() => _submitting = true);
     try {
       final id = await ref
@@ -95,8 +139,13 @@ class _ReportCaptureScreenState extends ConsumerState<ReportCaptureScreen> {
             uid: widget.uid,
             note: note,
             screenshots: List<XFile>.unmodifiable(_shots),
+            // The FROZEN screen the report was started on (mic-start or report-open)
+            // — so a report dictated on another screen attributes there, not here.
+            region: _draft.screen,
           );
       if (!mounted) return;
+      // Draft filed — clear it so the floating-mic "draft waiting" cue resets.
+      _draft.clear();
       await _showFiledDialog(id);
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
@@ -160,10 +209,12 @@ class _ReportCaptureScreenState extends ConsumerState<ReportCaptureScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final screen = _draft.screen;
+    final partial = _voice.liveTranscript.trim();
     return Scaffold(
       backgroundColor: HarnessTheme.background,
       // Keyboard (note field) shrinks the body; the bottom SafeArea keeps the
-      // File-report button clear of the Android nav bar (§7).
+      // File-report button clear of the Android nav bar.
       resizeToAvoidBottomInset: true,
       appBar: AppBar(
         title: const Text('File a report'),
@@ -174,6 +225,26 @@ class _ReportCaptureScreenState extends ConsumerState<ReportCaptureScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            if (screen != null && screen.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.place_outlined,
+                      size: 16,
+                      color: Colors.white38,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Reporting on: $screen',
+                        style: const TextStyle(color: Colors.white54),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             Row(
               children: [
                 const Text(
@@ -184,8 +255,8 @@ class _ReportCaptureScreenState extends ConsumerState<ReportCaptureScreen> {
                   ),
                 ),
                 const Spacer(),
-                // Mic-to-note dictation (OS speech seam). Degrades to a snack when
-                // the mic/engine is unavailable.
+                // App-owned native dictation into the shared draft. Degrades to a
+                // snack when the mic/engine is unavailable.
                 TextButton.icon(
                   onPressed: _submitting ? null : _toggleMic,
                   icon: Icon(
@@ -204,9 +275,26 @@ class _ReportCaptureScreenState extends ConsumerState<ReportCaptureScreen> {
                 ),
               ],
             ),
+            if (_listening)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  partial.isEmpty ? 'Listening…' : partial,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white38,
+                    fontSize: 12,
+                    fontStyle: partial.isEmpty
+                        ? FontStyle.italic
+                        : FontStyle.normal,
+                  ),
+                ),
+              ),
             const SizedBox(height: 8),
             TextField(
               controller: _note,
+              onChanged: _onNoteChanged,
               minLines: 4,
               maxLines: 10,
               style: const TextStyle(color: Colors.white, fontSize: 15),

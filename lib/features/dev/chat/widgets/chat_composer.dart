@@ -78,6 +78,8 @@ class ChatComposer extends StatelessWidget {
                 child: TextField(
                   controller: controller,
                   focusNode: focusNode,
+                  // Typing tears down a live mic turn (keyboard text authoritative).
+                  onChanged: (_) => compose.handleUserTyping(),
                   minLines: 1,
                   maxLines: 5,
                   textInputAction: TextInputAction.newline,

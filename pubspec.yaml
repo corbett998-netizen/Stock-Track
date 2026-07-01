@@ -56,7 +56,16 @@ dependencies:
   image_picker: ^1.1.2
   shared_preferences: ^2.5.3
   package_info_plus: ^9.0.1
-  speech_to_text: ^7.4.0
+
+  # Reusable harness voice-dictation module (app-owned native SpeechRecognizer +
+  # bundled offline sherpa-onnx engine) — the reusable-harness mic standard,
+  # ported verbatim from the reference mic pattern. REPLACES the OS `speech_to_text`
+  # seam: an app-owned recognizer runs while the owner NAVIGATES (the keyboard mic
+  # can't), and a native platform-channel bridge drags no `web` dep into Firebase v2.
+  harness_voice:
+    path: packages/harness_voice
+  # Model cache directory for the bundled offline engine (getApplicationSupportDirectory).
+  path_provider: ^2.1.4
 
 dev_dependencies:
   flutter_test:

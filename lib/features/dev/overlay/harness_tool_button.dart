@@ -54,9 +54,11 @@ class HarnessToolButton extends ConsumerWidget {
               backgroundColor: spec.color ?? HarnessTheme.accent,
               foregroundColor: Colors.black,
               elevation: 3,
-              onPressed: resolvedUid == null
+              // Only launch-tools render through this button (builder-tools render
+              // their own widget in the cluster), so launch is non-null here.
+              onPressed: (resolvedUid == null || spec.launch == null)
                   ? null
-                  : () => spec.launch(rootContext, resolvedUid),
+                  : () => spec.launch!(rootContext, resolvedUid),
               child: Icon(spec.icon, size: 20),
             ),
           ),

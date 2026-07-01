@@ -10,6 +10,7 @@ import '../harness_home_screen.dart';
 import '../report_capture/screens/report_capture_screen.dart';
 import '../report_queue/screens/report_queue_screen.dart';
 import '../services/harness_providers.dart';
+import '../voice/harness_voice_button.dart';
 import 'harness_tool_spec.dart';
 import 'single_instance_launcher.dart';
 
@@ -24,6 +25,18 @@ import 'single_instance_launcher.dart';
 /// poke inline) and returns to the exact same screen on close — there is no
 /// intermediate command-center page in the path.
 final List<HarnessToolSpec> kHarnessTools = <HarnessToolSpec>[
+  // MIC — a STATEFUL in-place tool (renders its own widget, no launch). Talk while
+  // dogfooding ON the screen being tested: dictation streams into the shared report
+  // DRAFT (with the screen frozen at mic-start), then "File a report" hydrates from
+  // it. App-owned native recognizer (runs while navigating), NOT a focused-field
+  // keyboard mic. Long-press A/Bs the engine (phone vs bundled offline).
+  HarnessToolSpec(
+    key: 'voice_mic',
+    icon: Icons.mic_none, // used only for the semantic label; builder owns render
+    label: 'Dictate a report',
+    builder: () => const HarnessVoiceButton(bare: true),
+  ),
+
   // Orchestrator chat — exclusive (one dev surface at a time). Badge intentionally
   // omitted: the honest "what needs me" here is UNREAD orchestrator messages, which
   // are not tracked yet; surfacing open-report counts on chat would misread.
@@ -98,12 +111,15 @@ final List<HarnessToolSpec> kHarnessTools = <HarnessToolSpec>[
     },
   ),
 
-  // Poke the orchestrator — inline, NO route. Honest per connectivity: in local
-  // preview nothing is delivered, so the confirmation says so.
+  // Poke the orchestrator — inline, NO route. A deliberate low-emphasis utility
+  // (muted colour) so it never competes with the core report/mic/chat stack; kept
+  // because a manual "check the queue now" nudge is still wanted. Honest per
+  // connectivity: in local preview nothing is delivered, so the confirmation says so.
   HarnessToolSpec(
     key: 'poke',
     icon: Icons.notifications_active_outlined,
-    label: 'Poke the orchestrator',
+    label: 'Nudge orchestrator now',
+    color: const Color(0xFF5A6472), // muted slate — de-emphasised utility
     launch: (rootCtx, uid) {
       final conn = resolveHarnessConn();
       final container = ProviderScope.containerOf(rootCtx, listen: false);

@@ -23,10 +23,16 @@ abstract interface class ReportRepository {
 
   /// File a new report (optionally with screenshots) — the CAPTURE half. Returns
   /// the new report's id so the capture UI can show a copyable handle.
+  ///
+  /// [region] is the FROZEN screen-context for a report that was DICTATED via the
+  /// floating mic (the screen the owner was on when they started talking) — passed
+  /// so a voice-first report attributes to that screen, NOT the report screen the
+  /// owner opened later to submit. Null → fall back to the live current screen.
   Future<String> fileReport({
     required String uid,
     required String note,
     List<XFile> screenshots = const <XFile>[],
+    String? region,
   });
 
   /// Bump `system/orchestratorPoke` so the orchestrator checks the queue now.
@@ -81,6 +87,7 @@ class FirebaseReportRepository implements ReportRepository {
     required String uid,
     required String note,
     List<XFile> screenshots = const <XFile>[],
+    String? region,
   }) async {
     harnessLog.report(
       'file: "${_firstLine(note)}" (${screenshots.length} shots)',
@@ -88,10 +95,14 @@ class FirebaseReportRepository implements ReportRepository {
     final shots = await ScreenshotUploadService.upload(screenshots, uid: uid);
     // Evidence captured at submit: device-log tail, capture platform, the app build
     // that produced it (logs-first, answerable "which build"), and the SCREEN the
-    // owner was on ("which screen was I on" — the fastest triage signal).
+    // owner was on ("which screen was I on" — the fastest triage signal). A mic-
+    // dictated report passes the FROZEN screen ([region]) so it attributes to where
+    // the owner was talking, not the report screen; else use the live screen.
     final logsInline = harnessLog.inlineTail();
     final appBuild = await resolveHarnessAppBuild();
-    final screen = CurrentScreenTracker.currentScreen;
+    final screen = (region != null && region.trim().isNotEmpty)
+        ? region.trim()
+        : CurrentScreenTracker.currentScreen;
     final ref = await _reports.add(<String, dynamic>{
       'userId': uid,
       'note': note,
@@ -328,11 +339,14 @@ class MockReportRepository implements ReportRepository {
     required String uid,
     required String note,
     List<XFile> screenshots = const <XFile>[],
+    String? region,
   }) async {
     harnessLog.report('file (mock): "${note.split('\n').first.trim()}"');
     final logsInline = harnessLog.inlineTail();
     final appBuild = await resolveHarnessAppBuild();
-    final screen = CurrentScreenTracker.currentScreen;
+    final screen = (region != null && region.trim().isNotEmpty)
+        ? region.trim()
+        : CurrentScreenTracker.currentScreen;
     final id = 'local-${DateTime.now().microsecondsSinceEpoch}';
     final createdAtMs = DateTime.now().millisecondsSinceEpoch;
     final report = Report.fromMap(id, <String, dynamic>{
