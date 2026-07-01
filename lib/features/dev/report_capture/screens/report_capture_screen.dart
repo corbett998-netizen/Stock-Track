@@ -28,7 +28,6 @@ class _ReportCaptureScreenState extends ConsumerState<ReportCaptureScreen> {
   final List<XFile> _shots = <XFile>[];
   bool _submitting = false;
   bool _listening = false;
-  String _micBase = '';
 
   static const int _maxShots = 4;
 
@@ -39,30 +38,31 @@ class _ReportCaptureScreenState extends ConsumerState<ReportCaptureScreen> {
     super.dispose();
   }
 
+  // Continuous-dictation contract: the seam owns base+append and re-arms across
+  // pauses. This screen renders the transcript the seam emits and reflects the seam's
+  // listening state — it never infers "stop" from a single finalised utterance.
   Future<void> _toggleMic() async {
     if (_listening) {
-      await _speech.stop();
-      if (mounted) setState(() => _listening = false);
+      await _speech.stop(); // _listening flips off via onListeningChanged
       return;
     }
-    _micBase = _note.text.trimRight();
     final ok = await _speech.start(
-      onResult: (t) {
+      base: _note.text,
+      onTranscript: (t) {
         if (!mounted) return;
         setState(() {
-          _note.text = _micBase.isEmpty ? t : '$_micBase $t';
+          _note.text = t;
           _note.selection = TextSelection.collapsed(offset: _note.text.length);
         });
       },
-      onFinal: (_) {
-        if (mounted) setState(() => _listening = false);
+      onListeningChanged: (listening) {
+        if (mounted) setState(() => _listening = listening);
       },
+      onError: _snack,
     );
     if (!ok) {
       _snack('Mic unavailable — check the microphone permission.');
-      return;
     }
-    if (mounted) setState(() => _listening = true);
   }
 
   Future<void> _pick() async {

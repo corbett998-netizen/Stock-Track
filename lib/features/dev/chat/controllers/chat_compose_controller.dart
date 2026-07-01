@@ -33,7 +33,6 @@ class ChatComposeController {
 
   final HarnessSpeech _speech = HarnessSpeech();
   bool _listening = false;
-  String _micBase = '';
 
   XFile? _staged;
   bool _sending = false;
@@ -55,33 +54,33 @@ class ChatComposeController {
   }
 
   // ----- Mic dictation (OS speech seam) -----
+  //
+  // Continuous-dictation contract: the seam owns base+append and re-arms across
+  // pauses. The composer just renders the transcript the seam emits and reflects the
+  // seam's listening state — it never infers "stop" from a single finalised utterance.
   Future<void> toggleMic() async {
     if (_listening) {
-      await _speech.stop();
-      _listening = false;
-      notify();
+      await _speech.stop(); // _listening flips off via onListeningChanged
       return;
     }
-    _micBase = controller.text.trimRight();
     final ok = await _speech.start(
-      onResult: (t) {
-        controller.text = _micBase.isEmpty ? t : '$_micBase $t';
+      base: controller.text,
+      onTranscript: (t) {
+        controller.text = t;
         controller.selection = TextSelection.collapsed(
           offset: controller.text.length,
         );
         notify();
       },
-      onFinal: (_) {
-        _listening = false;
+      onListeningChanged: (listening) {
+        _listening = listening;
         notify();
       },
+      onError: snack,
     );
     if (!ok) {
       snack('Mic unavailable — check the microphone permission.');
-      return;
     }
-    _listening = true;
-    notify();
   }
 
   Future<void> send() async {
