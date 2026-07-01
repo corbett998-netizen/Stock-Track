@@ -1,8 +1,11 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../../../core/utils/harness_app_build.dart';
+import '../../../../core/utils/harness_logger.dart';
 import '../../../../harness/harness_config.g.dart';
 import '../../report_capture/services/screenshot_upload_service.dart';
 import '../models/report.dart';
@@ -37,7 +40,7 @@ abstract interface class ReportRepository {
 /// Firestore-backed reports against Brandon's project (easy-stock-track).
 class FirebaseReportRepository implements ReportRepository {
   FirebaseReportRepository({FirebaseFirestore? firestore})
-      : _db = firestore ?? FirebaseFirestore.instance;
+    : _db = firestore ?? FirebaseFirestore.instance;
 
   final FirebaseFirestore _db;
 
@@ -55,7 +58,8 @@ class FirebaseReportRepository implements ReportRepository {
             d.id,
             d.data(),
             createdAtMs:
-                (d.data()['createdAt'] as Timestamp?)?.millisecondsSinceEpoch ?? 0,
+                (d.data()['createdAt'] as Timestamp?)?.millisecondsSinceEpoch ??
+                0,
           ),
       ]..sort((a, b) => b.createdAtMs.compareTo(a.createdAtMs));
       return reports;
@@ -68,23 +72,37 @@ class FirebaseReportRepository implements ReportRepository {
     required String note,
     List<XFile> screenshots = const <XFile>[],
   }) async {
+    harnessLog.report(
+      'file: "${_firstLine(note)}" (${screenshots.length} shots)',
+    );
     final shots = await ScreenshotUploadService.upload(screenshots, uid: uid);
+    // Evidence captured at submit: device-log tail, capture platform, and the app
+    // build that produced it (logs-first, answerable "which build").
+    final logsInline = harnessLog.inlineTail();
+    final appBuild = await resolveHarnessAppBuild();
     await _reports.add(<String, dynamic>{
       'userId': uid,
       'note': note,
       'noteOriginal': note,
-      'title': note.split('\n').first.trim(),
+      'title': _firstLine(note),
       'area': 'general',
       'status': 'new',
       'createdAt': FieldValue.serverTimestamp(),
+      'deviceInfo': <String, dynamic>{'platform': defaultTargetPlatform.name},
+      'appBuild': appBuild,
+      if (logsInline.isNotEmpty) 'logsInline': logsInline,
       if (shots.isNotEmpty) 'screenshots': shots,
     });
+    harnessLog.report('filed OK (${logsInline.length}B logs, build $appBuild)');
     unawaited(pokeOrchestrator(note: 'new report filed').catchError((_) {}));
   }
+
+  static String _firstLine(String s) => s.split('\n').first.trim();
 
   @override
   Future<void> pokeOrchestrator({String note = 'check queue'}) async {
     final trimmed = note.trim();
+    harnessLog.system('poke: ${trimmed.isEmpty ? 'check queue' : trimmed}');
     await _db.doc(HarnessConfig.pokeDoc).set(<String, dynamic>{
       'pokedAt': FieldValue.serverTimestamp(),
       'note': trimmed.isEmpty ? 'check queue' : trimmed,
@@ -95,13 +113,14 @@ class FirebaseReportRepository implements ReportRepository {
       _reports.doc(id).update(data);
 
   @override
-  Future<void> setTriageDecision(String reportId, {required String? decision}) =>
-      _update(reportId, {
-        'triageDecision': decision,
-        'triageDecisionAt':
-            decision == null ? null : FieldValue.serverTimestamp(),
-        if (decision != null) 'flaggedForOrchestrator': true,
-      });
+  Future<void> setTriageDecision(
+    String reportId, {
+    required String? decision,
+  }) => _update(reportId, {
+    'triageDecision': decision,
+    'triageDecisionAt': decision == null ? null : FieldValue.serverTimestamp(),
+    if (decision != null) 'flaggedForOrchestrator': true,
+  });
 
   @override
   Future<void> updateStatus(String reportId, {required String status}) =>
@@ -119,19 +138,17 @@ class FirebaseReportRepository implements ReportRepository {
       _update(reportId, {'flaggedForOrchestrator': value});
 
   @override
-  Future<void> addComment(String reportId, {required String text}) => _update(
-        reportId,
-        {
-          'comments': FieldValue.arrayUnion([
-            {
-              'text': text,
-              'at': DateTime.now().toIso8601String(),
-              'by': HarnessConfig.ownerRole,
-            },
-          ]),
-          'flaggedForOrchestrator': true,
-        },
-      );
+  Future<void> addComment(String reportId, {required String text}) =>
+      _update(reportId, {
+        'comments': FieldValue.arrayUnion([
+          {
+            'text': text,
+            'at': DateTime.now().toIso8601String(),
+            'by': HarnessConfig.ownerRole,
+          },
+        ]),
+        'flaggedForOrchestrator': true,
+      });
 }
 
 /// In-memory reports for the Rung-0 demo (no Firebase). Seeded with one sample
@@ -139,16 +156,18 @@ class FirebaseReportRepository implements ReportRepository {
 /// the backend.
 class MockReportRepository implements ReportRepository {
   MockReportRepository() {
-    _reports.add(Report.fromMap(
-      'seed-report-1',
-      <String, dynamic>{
-        'note': 'Low-stock badge overlaps the quantity on narrow phones.',
-        'area': 'inventory',
-        'status': 'new',
-        'recommendedFix': 'Wrap the badge row so it reflows under the value.',
-      },
-      createdAtMs: DateTime.now().millisecondsSinceEpoch - 300000,
-    ));
+    _reports.add(
+      Report.fromMap(
+        'seed-report-1',
+        <String, dynamic>{
+          'note': 'Low-stock badge overlaps the quantity on narrow phones.',
+          'area': 'inventory',
+          'status': 'new',
+          'recommendedFix': 'Wrap the badge row so it reflows under the value.',
+        },
+        createdAtMs: DateTime.now().millisecondsSinceEpoch - 300000,
+      ),
+    );
   }
 
   final List<Report> _reports = <Report>[];
@@ -184,33 +203,59 @@ class MockReportRepository implements ReportRepository {
     required String note,
     List<XFile> screenshots = const <XFile>[],
   }) async {
-    _reports.add(Report.fromMap(
-      'local-${DateTime.now().microsecondsSinceEpoch}',
-      <String, dynamic>{
-        'note': note,
-        'area': 'general',
-        'status': 'new',
-        'screenshots': [for (final s in screenshots) s.path],
-      },
-      createdAtMs: DateTime.now().millisecondsSinceEpoch,
-    ));
+    harnessLog.report('file (mock): "${note.split('\n').first.trim()}"');
+    final logsInline = harnessLog.inlineTail();
+    final appBuild = await resolveHarnessAppBuild();
+    _reports.add(
+      Report.fromMap(
+        'local-${DateTime.now().microsecondsSinceEpoch}',
+        <String, dynamic>{
+          'note': note,
+          'area': 'general',
+          'status': 'new',
+          'screenshots': [for (final s in screenshots) s.path],
+          'deviceInfo': <String, dynamic>{
+            'platform': defaultTargetPlatform.name,
+          },
+          'appBuild': appBuild,
+          if (logsInline.isNotEmpty) 'logsInline': logsInline,
+        },
+        createdAtMs: DateTime.now().millisecondsSinceEpoch,
+      ),
+    );
     _emit();
   }
 
   @override
-  Future<void> pokeOrchestrator({String note = 'check queue'}) async {}
+  Future<void> pokeOrchestrator({String note = 'check queue'}) async {
+    harnessLog.system('poke (mock): ${note.trim()}');
+  }
 
   @override
-  Future<void> setTriageDecision(String reportId, {required String? decision}) async =>
-      _replace(reportId, (r) => _copy(r, triageDecision: decision, flagged: decision != null ? true : r.flaggedForOrchestrator));
+  Future<void> setTriageDecision(
+    String reportId, {
+    required String? decision,
+  }) async => _replace(
+    reportId,
+    (r) => _copy(
+      r,
+      triageDecision: decision,
+      flagged: decision != null ? true : r.flaggedForOrchestrator,
+    ),
+  );
 
   @override
   Future<void> updateStatus(String reportId, {required String status}) async =>
       _replace(reportId, (r) => _copy(r, status: status));
 
   @override
-  Future<void> setManualResolved(String reportId, {required bool value}) async =>
-      _replace(reportId, (r) => _copy(r, manualResolved: value, status: value ? 'fixed' : r.status));
+  Future<void> setManualResolved(
+    String reportId, {
+    required bool value,
+  }) async => _replace(
+    reportId,
+    (r) => _copy(r, manualResolved: value, status: value ? 'fixed' : r.status),
+  );
 
   @override
   Future<void> setFlagged(String reportId, bool value) async =>
@@ -220,7 +265,11 @@ class MockReportRepository implements ReportRepository {
   Future<void> addComment(String reportId, {required String text}) async =>
       _replace(reportId, (r) {
         final comments = List<Map<String, dynamic>>.of(r.comments)
-          ..add({'text': text, 'at': DateTime.now().toIso8601String(), 'by': HarnessConfig.ownerRole});
+          ..add({
+            'text': text,
+            'at': DateTime.now().toIso8601String(),
+            'by': HarnessConfig.ownerRole,
+          });
         return _copy(r, comments: comments, flagged: true);
       });
 
@@ -231,21 +280,24 @@ class MockReportRepository implements ReportRepository {
     bool? flagged,
     Object? triageDecision = _unset,
     List<Map<String, dynamic>>? comments,
-  }) =>
-      Report(
-        id: r.id,
-        createdAtMs: r.createdAtMs,
-        area: r.area,
-        status: status ?? r.status,
-        note: r.note,
-        screenshots: r.screenshots,
-        comments: comments ?? r.comments,
-        flaggedForOrchestrator: flagged ?? r.flaggedForOrchestrator,
-        manualResolved: manualResolved ?? r.manualResolved,
-        recommendedFix: r.recommendedFix,
-        triageDecision:
-            identical(triageDecision, _unset) ? r.triageDecision : triageDecision as String?,
-      );
+  }) => Report(
+    id: r.id,
+    createdAtMs: r.createdAtMs,
+    area: r.area,
+    status: status ?? r.status,
+    note: r.note,
+    screenshots: r.screenshots,
+    comments: comments ?? r.comments,
+    flaggedForOrchestrator: flagged ?? r.flaggedForOrchestrator,
+    manualResolved: manualResolved ?? r.manualResolved,
+    recommendedFix: r.recommendedFix,
+    triageDecision: identical(triageDecision, _unset)
+        ? r.triageDecision
+        : triageDecision as String?,
+    logsInline: r.logsInline,
+    deviceInfo: r.deviceInfo,
+    appBuild: r.appBuild,
+  );
 
   static const Object _unset = Object();
 }

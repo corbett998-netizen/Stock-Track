@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../../../../core/utils/harness_logger.dart';
 import '../models/chat_item.dart';
 import '../services/chat_repository.dart';
 
@@ -69,15 +70,17 @@ class ChatMessageController {
   void _subscribe(String uid) {
     _sub?.cancel();
     _uid = uid;
-    _sub = repository.watchMessages(uid).listen(
-      _onItems,
-      onError: (Object e) {
-        if (!_loaded) {
-          _loadError = e;
-          notify();
-        }
-      },
-    );
+    _sub = repository
+        .watchMessages(uid)
+        .listen(
+          _onItems,
+          onError: (Object e) {
+            if (!_loaded) {
+              _loadError = e;
+              notify();
+            }
+          },
+        );
   }
 
   Timer _startPoll(String uid) =>
@@ -133,6 +136,12 @@ class ChatMessageController {
     final wasNearBottom = isNearBottom();
     final isNewMessage = !firstLoad && newestId != _lastNewestId;
     final isOwnSend = newestRole == 'brandon';
+
+    if (firstLoad) {
+      harnessLog.chat('receive: loaded ${items.length} msgs');
+    } else if (isNewMessage) {
+      harnessLog.chat('receive: new msg from $newestRole');
+    }
 
     _lastSig = sig;
     _lastNewestId = newestId;

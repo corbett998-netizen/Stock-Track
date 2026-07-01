@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/widgets.dart';
 
+import '../../../../core/utils/harness_logger.dart';
 import '../services/chat_repository.dart';
 
 /// Send orchestration for the owner↔orchestrator chat. Ported from Blueprint's
@@ -37,6 +38,7 @@ class ChatComposeController {
     _sending = true;
     notify();
 
+    harnessLog.chat('send (${text.length} chars)');
     var queuedOffline = false;
     try {
       try {
@@ -49,6 +51,7 @@ class ChatComposeController {
     } catch (e) {
       _sending = false;
       notify();
+      harnessLog.chat('send FAILED: $e');
       snack("Couldn't send — tap send to resend.");
       return; // keep the text so the owner can resend
     }
@@ -56,6 +59,7 @@ class ChatComposeController {
     controller.clear();
     _sending = false;
     notify();
+    harnessLog.chat(queuedOffline ? 'send queued offline' : 'send OK');
     if (queuedOffline) {
       snack('Message queued — will send when back online.');
     }

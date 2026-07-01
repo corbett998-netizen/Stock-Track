@@ -29,7 +29,10 @@ class HarnessHomeScreen extends ConsumerWidget {
       ),
       body: uidAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => _BackendNotReady(error: e, onRetry: () => ref.invalidate(ownerUidProvider)),
+        error: (e, _) => _BackendNotReady(
+          error: e,
+          onRetry: () => ref.invalidate(ownerUidProvider),
+        ),
         data: (uid) => _CommandCenter(uid: uid),
       ),
     );
@@ -45,21 +48,31 @@ class _CommandCenter extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final reportsAsync = ref.watch(ownerReportsProvider(uid));
     final openCount = reportsAsync.maybeWhen(
-      data: (r) => r.where((x) =>
-          x.status != 'fixed' && x.status != 'wont_fix' && !x.manualResolved).length,
+      data: (r) => r
+          .where(
+            (x) =>
+                x.status != 'fixed' &&
+                x.status != 'wont_fix' &&
+                !x.manualResolved,
+          )
+          .length,
       orElse: () => null,
     );
+    final build = ref.watch(harnessAppBuildProvider).valueOrNull;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        _statusCard(context, openCount),
+        _statusCard(context, openCount, build),
         const SizedBox(height: 16),
-        const Text('OWNER CONTROLS',
-            style: TextStyle(
-                color: Colors.white38,
-                fontSize: 11,
-                letterSpacing: 0.8,
-                fontWeight: FontWeight.w700)),
+        const Text(
+          'OWNER CONTROLS',
+          style: TextStyle(
+            color: Colors.white38,
+            fontSize: 11,
+            letterSpacing: 0.8,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
         const SizedBox(height: 8),
         _tile(
           context,
@@ -91,7 +104,7 @@ class _CommandCenter extends ConsumerWidget {
     );
   }
 
-  Widget _statusCard(BuildContext context, int? openCount) {
+  Widget _statusCard(BuildContext context, int? openCount, String? build) {
     final mode = kHarnessMode == HarnessMode.firebase ? 'Firebase' : 'Mock';
     final shortUid = uid.length > 12 ? '${uid.substring(0, 12)}…' : uid;
     return Container(
@@ -108,15 +121,22 @@ class _CommandCenter extends ConsumerWidget {
             children: [
               Icon(Icons.dns_outlined, size: 18, color: HarnessTheme.accent),
               const SizedBox(width: 8),
-              Text('${HarnessConfig.projectName} owner harness',
-                  style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 15)),
+              Text(
+                '${HarnessConfig.projectName} owner harness',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 15,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 12),
-          _kv('Backend', '$mode · ${HarnessConfig.reportsCollection} in easy-stock-track'),
+          _kv(
+            'Backend',
+            '$mode · ${HarnessConfig.reportsCollection} in easy-stock-track',
+          ),
+          _kv('App build', build ?? '…'),
           _kv('Owner role', HarnessConfig.ownerRole),
           Row(
             children: [
@@ -147,12 +167,16 @@ class _CommandCenter extends ConsumerWidget {
         children: [
           SizedBox(
             width: 96,
-            child: Text(k,
-                style: const TextStyle(color: Colors.white38, fontSize: 12)),
+            child: Text(
+              k,
+              style: const TextStyle(color: Colors.white38, fontSize: 12),
+            ),
           ),
           Expanded(
-            child: Text(v,
-                style: const TextStyle(color: Colors.white70, fontSize: 12)),
+            child: Text(
+              v,
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+            ),
           ),
         ],
       ),
@@ -175,13 +199,18 @@ class _CommandCenter extends ConsumerWidget {
       ),
       child: ListTile(
         leading: Icon(icon, color: HarnessTheme.accent),
-        title: Text(title,
-            style: const TextStyle(
-                color: Colors.white, fontWeight: FontWeight.w600)),
-        subtitle: Text(subtitle,
-            style: const TextStyle(color: Colors.white54, fontSize: 12)),
-        trailing:
-            const Icon(Icons.chevron_right, color: Colors.white38),
+        title: Text(
+          title,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        subtitle: Text(
+          subtitle,
+          style: const TextStyle(color: Colors.white54, fontSize: 12),
+        ),
+        trailing: const Icon(Icons.chevron_right, color: Colors.white38),
         onTap: onTap,
       ),
     );
@@ -193,7 +222,11 @@ class _CommandCenter extends ConsumerWidget {
         'Harness instance: ${HarnessConfig.projectName} · easy-stock-track\n'
         'Separate from any other app — its own Firebase, its own data.',
         textAlign: TextAlign.center,
-        style: const TextStyle(color: Colors.white24, fontSize: 10, height: 1.4),
+        style: const TextStyle(
+          color: Colors.white24,
+          fontSize: 10,
+          height: 1.4,
+        ),
       ),
     );
   }
@@ -217,7 +250,9 @@ class _PokeTileState extends ConsumerState<_PokeTile> {
   Future<void> _poke() async {
     setState(() => _poked = true);
     try {
-      await ref.read(reportRepositoryProvider).pokeOrchestrator(note: 'owner poke');
+      await ref
+          .read(reportRepositoryProvider)
+          .pokeOrchestrator(note: 'owner poke');
     } catch (_) {}
     Future.delayed(const Duration(seconds: 3), () {
       if (mounted) setState(() => _poked = false);
@@ -234,13 +269,21 @@ class _PokeTileState extends ConsumerState<_PokeTile> {
         side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
       ),
       child: ListTile(
-        leading: Icon(_poked ? Icons.check_circle : Icons.notifications_active_outlined,
-            color: HarnessTheme.accent),
-        title: Text(_poked ? 'Poked' : 'Poke the orchestrator',
-            style: const TextStyle(
-                color: Colors.white, fontWeight: FontWeight.w600)),
-        subtitle: const Text('Bump system/orchestratorPoke — wake the loop now.',
-            style: TextStyle(color: Colors.white54, fontSize: 12)),
+        leading: Icon(
+          _poked ? Icons.check_circle : Icons.notifications_active_outlined,
+          color: HarnessTheme.accent,
+        ),
+        title: Text(
+          _poked ? 'Poked' : 'Poke the orchestrator',
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        subtitle: const Text(
+          'Bump system/orchestratorPoke — wake the loop now.',
+          style: TextStyle(color: Colors.white54, fontSize: 12),
+        ),
         onTap: _poked ? null : _poke,
       ),
     );
@@ -264,26 +307,38 @@ class _BackendNotReady extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.settings_suggest_outlined,
-                color: Colors.white38, size: 44),
+            const Icon(
+              Icons.settings_suggest_outlined,
+              color: Colors.white38,
+              size: 44,
+            ),
             const SizedBox(height: 14),
-            const Text('Backend not enabled yet',
-                style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 16)),
+            const Text(
+              'Backend not enabled yet',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+                fontSize: 16,
+              ),
+            ),
             const SizedBox(height: 8),
             const Text(
               'The harness needs Firestore + Anonymous Auth turned on in the '
               'easy-stock-track Firebase project. See '
               'docs/FOR_BRANDON_harness_backend.md for the exact steps.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.white54, fontSize: 13, height: 1.4),
+              style: TextStyle(
+                color: Colors.white54,
+                fontSize: 13,
+                height: 1.4,
+              ),
             ),
             const SizedBox(height: 10),
-            Text('$error',
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white24, fontSize: 11)),
+            Text(
+              '$error',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white24, fontSize: 11),
+            ),
             const SizedBox(height: 16),
             FilledButton.icon(
               onPressed: onRetry,

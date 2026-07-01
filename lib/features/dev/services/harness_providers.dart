@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/utils/harness_app_build.dart';
 import '../chat/services/chat_repository.dart';
 import '../report_queue/models/report.dart';
 import '../report_queue/services/report_repository.dart';
@@ -41,7 +42,16 @@ final ownerUidProvider = FutureProvider<String>((ref) async {
 
 /// Live stream of the owner's reports (shared by the queue screen + the command
 /// center's live counts).
-final ownerReportsProvider =
-    StreamProvider.family<List<Report>, String>((ref, uid) {
+final ownerReportsProvider = StreamProvider.family<List<Report>, String>((
+  ref,
+  uid,
+) {
   return ref.watch(reportRepositoryProvider).watchReports(uid);
+});
+
+/// The host app's build/version string (e.g. `1.0.0 (1)`) — shown on the command
+/// center and stamped on reports. App-agnostic: reads whatever app the harness is
+/// compiled into via `package_info_plus`.
+final harnessAppBuildProvider = FutureProvider<String>((ref) async {
+  return resolveHarnessAppBuild();
 });

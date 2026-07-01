@@ -44,21 +44,35 @@ class ReportDetail extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (report.note.isNotEmpty) ...[
-            Text(report.note,
-                style: TextStyle(
-                    fontSize: 13,
-                    height: 1.35,
-                    color: Colors.white.withValues(alpha: 0.8))),
+            Text(
+              report.note,
+              style: TextStyle(
+                fontSize: 13,
+                height: 1.35,
+                color: Colors.white.withValues(alpha: 0.8),
+              ),
+            ),
             const SizedBox(height: 10),
           ],
           if (report.screenshots.isNotEmpty) ...[
             _screenshots(),
             const SizedBox(height: 10),
           ],
+          if ((report.appBuild ?? '').isNotEmpty ||
+              (report.platform ?? '').isNotEmpty) ...[
+            _metaLine(),
+            const SizedBox(height: 8),
+          ],
+          if ((report.logsInline ?? '').isNotEmpty) ...[
+            _deviceLogTail(),
+            const SizedBox(height: 8),
+          ],
           Row(
             children: [
-              const Text('Status',
-                  style: TextStyle(color: Colors.white54, fontSize: 12)),
+              const Text(
+                'Status',
+                style: TextStyle(color: Colors.white54, fontSize: 12),
+              ),
               const SizedBox(width: 10),
               _statusDropdown(),
             ],
@@ -71,8 +85,10 @@ class ReportDetail extends StatelessWidget {
                   dense: true,
                   contentPadding: EdgeInsets.zero,
                   activeColor: kReportAccent,
-                  title: const Text('Resolved',
-                      style: TextStyle(color: Colors.white70, fontSize: 13)),
+                  title: const Text(
+                    'Resolved',
+                    style: TextStyle(color: Colors.white70, fontSize: 13),
+                  ),
                   value: report.manualResolved,
                   onChanged: saving ? null : onResolvedToggle,
                 ),
@@ -82,8 +98,10 @@ class ReportDetail extends StatelessWidget {
                   dense: true,
                   contentPadding: EdgeInsets.zero,
                   activeColor: kReportAccent,
-                  title: const Text('Flag',
-                      style: TextStyle(color: Colors.white70, fontSize: 13)),
+                  title: const Text(
+                    'Flag',
+                    style: TextStyle(color: Colors.white70, fontSize: 13),
+                  ),
                   value: report.flaggedForOrchestrator,
                   onChanged: saving ? null : onFlagToggle,
                 ),
@@ -92,12 +110,15 @@ class ReportDetail extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           if (report.comments.isNotEmpty) ...[
-            const Text('COMMENTS',
-                style: TextStyle(
-                    color: Colors.white38,
-                    fontSize: 10,
-                    letterSpacing: 0.6,
-                    fontWeight: FontWeight.w700)),
+            const Text(
+              'COMMENTS',
+              style: TextStyle(
+                color: Colors.white38,
+                fontSize: 10,
+                letterSpacing: 0.6,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
             const SizedBox(height: 4),
             for (final c in report.comments) _comment(c),
             const SizedBox(height: 6),
@@ -120,9 +141,86 @@ class ReportDetail extends StatelessWidget {
               if (v != null) onStatusChanged(v);
             },
       items: [
-        for (final s in _statuses)
-          DropdownMenuItem(value: s, child: Text(s)),
+        for (final s in _statuses) DropdownMenuItem(value: s, child: Text(s)),
       ],
+    );
+  }
+
+  /// Capture context — the build that produced the report + the platform. Answers
+  /// "which build / device is this bug on?" at a glance.
+  Widget _metaLine() {
+    final parts = <String>[
+      if ((report.appBuild ?? '').isNotEmpty) 'build ${report.appBuild}',
+      if ((report.platform ?? '').isNotEmpty) report.platform!,
+    ];
+    return Row(
+      children: [
+        Icon(
+          Icons.info_outline,
+          size: 13,
+          color: Colors.white.withValues(alpha: 0.4),
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            parts.join('  ·  '),
+            style: const TextStyle(color: Colors.white54, fontSize: 12),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Expandable device-log tail — the logs-first triage surface. Diagnose from the
+  /// evidence the report carried, in-app, without asking for a capture.
+  Widget _deviceLogTail() {
+    final logs = report.logsInline ?? '';
+    return Theme(
+      // Strip the ExpansionTile's default dividers so it sits flush in the card.
+      data: ThemeData.dark().copyWith(dividerColor: Colors.transparent),
+      child: ExpansionTile(
+        tilePadding: EdgeInsets.zero,
+        childrenPadding: EdgeInsets.zero,
+        iconColor: kReportAccent,
+        collapsedIconColor: Colors.white38,
+        title: Row(
+          children: [
+            Icon(Icons.terminal, size: 14, color: kReportAccent),
+            const SizedBox(width: 6),
+            const Text(
+              'DEVICE LOG TAIL',
+              style: TextStyle(
+                color: Colors.white54,
+                fontSize: 11,
+                letterSpacing: 0.6,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+        children: [
+          Container(
+            width: double.infinity,
+            constraints: const BoxConstraints(maxHeight: 220),
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.35),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: SingleChildScrollView(
+              child: SelectableText(
+                logs,
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 11,
+                  fontFamily: 'monospace',
+                  height: 1.3,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -159,13 +257,20 @@ class ReportDetail extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.chat_bubble_outline,
-              size: 12, color: Colors.white.withValues(alpha: 0.4)),
+          Icon(
+            Icons.chat_bubble_outline,
+            size: 12,
+            color: Colors.white.withValues(alpha: 0.4),
+          ),
           const SizedBox(width: 6),
           Expanded(
-            child: Text('${c['text'] ?? ''}',
-                style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.75), fontSize: 12)),
+            child: Text(
+              '${c['text'] ?? ''}',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.75),
+                fontSize: 12,
+              ),
+            ),
           ),
         ],
       ),
@@ -185,8 +290,10 @@ class ReportDetail extends StatelessWidget {
               hintStyle: const TextStyle(color: Colors.white38, fontSize: 13),
               filled: true,
               fillColor: Colors.white.withValues(alpha: 0.05),
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 8,
+              ),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
                 borderSide: BorderSide.none,

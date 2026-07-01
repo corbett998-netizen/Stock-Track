@@ -16,6 +16,9 @@ class Report {
     required this.manualResolved,
     required this.recommendedFix,
     required this.triageDecision,
+    this.logsInline,
+    this.deviceInfo,
+    this.appBuild,
   });
 
   final String id;
@@ -35,6 +38,19 @@ class Report {
   /// Owner's per-row triage call — `'execute'` or `'discuss'`; null = undecided.
   final String? triageDecision;
 
+  /// Device-log tail captured at submit (logs-first triage). Null/empty on older
+  /// reports filed before the logger existed.
+  final String? logsInline;
+
+  /// Capture context: `{platform: 'android' | 'iOS' | …}`. Additive/tolerant.
+  final Map<String, dynamic>? deviceInfo;
+
+  /// App build/version that produced the report (e.g. `1.0.0 (1)`).
+  final String? appBuild;
+
+  /// The capture platform, if recorded.
+  String? get platform => deviceInfo?['platform'] as String?;
+
   DateTime get createdAt => DateTime.fromMillisecondsSinceEpoch(createdAtMs);
 
   String get displayRecommendation => (recommendedFix ?? '').trim();
@@ -47,8 +63,8 @@ class Report {
   /// Status shown on the chip. A manual-resolved tick reads as 'fixed'.
   String get effectiveStatus =>
       (manualResolved && status != 'fixed' && status != 'wont_fix')
-          ? 'fixed'
-          : status;
+      ? 'fixed'
+      : status;
 
   static String _firstLine(String s) => s
       .split('\n')
@@ -61,7 +77,11 @@ class Report {
   /// Build from a plain map (Firestore doc data OR mock state). [createdAtMs] is
   /// pre-resolved by the caller (Firestore Timestamp → millis; mock passes it
   /// directly). Screenshots are resolved to a flat list of download URLs.
-  static Report fromMap(String id, Map<String, dynamic> d, {required int createdAtMs}) {
+  static Report fromMap(
+    String id,
+    Map<String, dynamic> d, {
+    required int createdAtMs,
+  }) {
     final shotsRaw = d['screenshots'];
     final shots = <String>[];
     if (shotsRaw is List) {
@@ -80,6 +100,7 @@ class Report {
         if (c is Map) comments.add(Map<String, dynamic>.from(c));
       }
     }
+    final deviceRaw = d['deviceInfo'];
     return Report(
       id: id,
       createdAtMs: createdAtMs,
@@ -94,6 +115,11 @@ class Report {
       manualResolved: d['manualResolved'] == true,
       recommendedFix: d['recommendedFix'] as String?,
       triageDecision: d['triageDecision'] as String?,
+      logsInline: d['logsInline'] as String?,
+      deviceInfo: deviceRaw is Map
+          ? Map<String, dynamic>.from(deviceRaw)
+          : null,
+      appBuild: d['appBuild'] as String?,
     );
   }
 }

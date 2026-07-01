@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:stock_track/core/utils/harness_logger.dart';
 import 'package:stock_track/features/dev/report_queue/models/report.dart';
 import 'package:stock_track/features/dev/report_queue/models/report_filter.dart';
 import 'package:stock_track/harness/harness_config.g.dart';
@@ -32,23 +33,76 @@ void main() {
         'mobileissuereports',
         'pete',
       ]) {
-        expect(all.contains(bad), isFalse, reason: 'BP literal "$bad" leaked into HarnessConfig');
+        expect(
+          all.contains(bad),
+          isFalse,
+          reason: 'BP literal "$bad" leaked into HarnessConfig',
+        );
       }
     });
   });
 
+  group('HarnessLogger (generic device logger)', () {
+    setUp(() => harnessLog.clear());
+
+    test('records lines and snapshot returns them oldest→newest', () {
+      harnessLog.chat('one');
+      harnessLog.report('two');
+      final snap = harnessLog.snapshot();
+      expect(snap.contains('[chat] one'), isTrue);
+      expect(snap.contains('[report] two'), isTrue);
+      expect(snap.indexOf('one'), lessThan(snap.indexOf('two')));
+    });
+
+    test('snapshot(percent) returns only the most-recent slice', () {
+      for (var i = 0; i < 10; i++) {
+        harnessLog.system('line$i');
+      }
+      final half = harnessLog.snapshot(50);
+      expect(half.contains('line9'), isTrue); // newest kept
+      expect(half.contains('line0'), isFalse); // oldest dropped
+    });
+
+    test('inlineTail is byte-capped on a newline boundary', () {
+      for (var i = 0; i < 50; i++) {
+        harnessLog.system('x' * 100);
+      }
+      final tail = harnessLog.inlineTail(maxBytes: 500);
+      expect(tail.length, lessThanOrEqualTo(500));
+      // A partial leading line is dropped → no dangling fragment at the very start.
+      expect(
+        tail.startsWith('20'),
+        isTrue,
+      ); // an ISO timestamp begins each line
+    });
+
+    test('empty buffer snapshots to empty string', () {
+      expect(harnessLog.snapshot(), isEmpty);
+      expect(harnessLog.inlineTail(), isEmpty);
+    });
+  });
+
   group('Report.fromMap', () {
+    test('reads logsInline / deviceInfo.platform / appBuild (Chunk 2)', () {
+      final r = Report.fromMap('r-logs', {
+        'note': 'x',
+        'status': 'new',
+        'logsInline': '2026 [chat] send OK',
+        'deviceInfo': {'platform': 'android'},
+        'appBuild': '1.0.0 (1)',
+      }, createdAtMs: 0);
+      expect(r.logsInline, '2026 [chat] send OK');
+      expect(r.platform, 'android');
+      expect(r.appBuild, '1.0.0 (1)');
+    });
+
     test('parses fields + tolerates missing additive fields', () {
-      final r = Report.fromMap(
-        'r1',
-        {
-          'note': 'Badge overlaps qty',
-          'area': 'inventory',
-          'status': 'new',
-          'flaggedForOrchestrator': true,
-        },
-        createdAtMs: 1000,
-      );
+      final r = Report.fromMap('r1', {
+        'note': 'Badge overlaps qty',
+        'area': 'inventory',
+        'status': 'new',
+        'flaggedForOrchestrator': true,
+      }, createdAtMs: 1000);
       expect(r.id, 'r1');
       expect(r.displayTitle, 'Badge overlaps qty');
       expect(r.area, 'inventory');
@@ -59,30 +113,35 @@ void main() {
     });
 
     test('effectiveStatus reads manual-resolved as fixed', () {
-      final r = Report.fromMap('r2', {'note': 'x', 'status': 'new', 'manualResolved': true}, createdAtMs: 0);
+      final r = Report.fromMap('r2', {
+        'note': 'x',
+        'status': 'new',
+        'manualResolved': true,
+      }, createdAtMs: 0);
       expect(r.effectiveStatus, 'fixed');
     });
 
     test('resolves screenshot urls from map or string entries', () {
-      final r = Report.fromMap(
-        'r3',
-        {
-          'note': 'x',
-          'screenshots': [
-            {'url': 'https://a/1.png', 'path': 'p'},
-            'https://a/2.png',
-            {'nope': true},
-          ],
-        },
-        createdAtMs: 0,
-      );
+      final r = Report.fromMap('r3', {
+        'note': 'x',
+        'screenshots': [
+          {'url': 'https://a/1.png', 'path': 'p'},
+          'https://a/2.png',
+          {'nope': true},
+        ],
+      }, createdAtMs: 0);
       expect(r.screenshots, ['https://a/1.png', 'https://a/2.png']);
     });
   });
 
   group('ReportFilter.matches', () {
     Report make(String status, {bool flagged = false, bool manual = false}) =>
-        Report.fromMap('x', {'note': 'n', 'status': status, 'flaggedForOrchestrator': flagged, 'manualResolved': manual}, createdAtMs: 0);
+        Report.fromMap('x', {
+          'note': 'n',
+          'status': status,
+          'flaggedForOrchestrator': flagged,
+          'manualResolved': manual,
+        }, createdAtMs: 0);
 
     test('pending matches new/queued', () {
       expect(ReportFilter.pending.matches(make('new')), isTrue);
