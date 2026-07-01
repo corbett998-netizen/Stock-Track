@@ -16,6 +16,9 @@
 - **Owner-comms HARNESS plan** - DIRECTED Pete 20:37 (Brandon needs his OWN owner-comms/dev-chat harness to operate as a non-coder, same capability as BP, never BP infra). EXECUTING via lane a44fe78d -> `docs/working/JUN30_stocktrack_harness_plan.md`: 7 areas (need-it / minimum / reuse-pattern-not-config / form[in-app vs local vs doc vs staged] / backend[mock-vs-Brandon-Firebase, same-project-separate-collection vs isolated] / separation-list / next-APK-sequence). Recurring unlock = Brandon's Firebase (real in-app chat needs Firestore). PLAN ONLY.
 
 ## AWAITING-OWNER-DECISION (asked; needs the owner's call)
+- ⭐ **SHIP-PIPELINE UNBLOCK PATH (orch-VERIFIED 2026-07-01; relayed to Pete):** Firebase core wired + build-proven (commit 6f04b9c pushed); ship script pinned to easy-stock-track. Upload BLOCKED — the authed account here has NO access to Brandon's project. Brandon must (1) enable App Distribution, (2) create `stocktrack-testers` group (+Pete +Brandon), (3) grant an uploader. **Owner-decision on #3:** A) Brandon grants Pete's account App-Dist-Admin → orch ships from here [REC, simplest] | B) Brandon ships from his own machine after `firebase login` | C) Brandon provides a CI token. Never a BP credential.
+- **Debug-signed internal builds now vs Brandon's own release keystore** (long-lead/permanent) — debug fine for internal testers; keystore later.
+- **minSdk now 23** (Android 6.0+, ~99% coverage) — forced by firebase_core 4.x; flag only if it matters.
 - 8 open questions to move from references → buildable spec — see `OWNER_VISION.md` "Open questions for the owner" (backend/cloud choice, scanning method, multi-user/roles, recall tracking, truck-as-location, customer records, greenfield-or-existing, first slice + timeline).
 
 ## BLOCKED
