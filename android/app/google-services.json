@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "367897871594",
+    "project_id": "easy-stock-track",
+    "storage_bucket": "easy-stock-track.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:367897871594:android:08253408e00517c6548393",
+        "android_client_info": {
+          "package_name": "com.stocktrack.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC1D1fzqJnDIRLcfo3heuEk0GyoZf8P7Bw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

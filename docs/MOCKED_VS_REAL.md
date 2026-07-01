@@ -1,11 +1,35 @@
-# Stock-Track — What's MOCK vs REAL (Slice 1)
+# Stock-Track — What's MOCK vs REAL (Slice 1 + Firebase-core wiring)
 
 > Read this to know exactly what is real product, what is placeholder data, and
 > what is faked — and how the Firebase "real cloud" version plugs in later.
 >
-> **This slice is FRONTEND-FIRST: NO Firebase, no cloud, no backend.** Everything
-> runs on the phone with in-memory mock data. That is on purpose — the first APK
-> is for look-and-feel, not live data.
+> **Slice 1 was FRONTEND-FIRST: no Firebase.** As of the Firebase-core wiring
+> step, **Firebase Core is now wired + connected to Brandon's own project
+> (`easy-stock-track`)** — the app initializes Firebase on launch. **DATA is
+> still MOCK** (the repository abstraction is untouched); the mock→Firestore
+> data swap is a separate future slice (§4). So: real Firebase *connection*,
+> still-mock *data*.
+
+---
+
+## 0. Firebase Core — WIRED / REAL connection (data still mock)
+
+- **What's real now:** `firebase_core` is a dependency; the google-services
+  Gradle plugin processes **Brandon's** `android/app/google-services.json`
+  (project `easy-stock-track`, app `com.stocktrack.app`) at build time;
+  `Firebase.initializeApp()` runs in `main()` (`lib/main.dart`). The debug APK
+  builds clean with Firebase linked (verified: the gms plugin injects
+  `project_id=easy-stock-track` into app resources; `FlutterFirebaseCorePlugin`
+  is registered; firebase native libs are bundled in the APK). Android `minSdk`
+  was raised 21→23 (firebase_core 4.x requirement) and NDK pinned to 27.
+- **What's still MOCK:** all inventory/installation DATA (§1 below). The
+  `InventoryRepository` / `InstallationRepository` seam is unchanged — the app
+  still runs `MockInventoryRepository` / `MockInstallationRepository`. Firebase
+  being available does NOT mean the app reads/writes Firestore yet.
+- **iOS:** `GoogleService-Info.plist` is placed in `ios/Runner/` for later; iOS
+  needs a Mac to build (not this step's target).
+- **Never Blueprint Fitness:** every Firebase identifier here is Brandon's own
+  (`easy-stock-track` / `com.stocktrack.app`); BP's project is never referenced.
 
 ---
 
@@ -83,10 +107,12 @@ UI (screens/widgets)  ─reads providers→  InventoryRepository (abstract)
   inventoryRepositoryProvider.overrideWithValue(FirebaseInventoryRepository()),
   ```
 
-**To go live later:** add `firebase_core` / `cloud_firestore`, point at
-**Brandon's own** Firebase project (his account/config — never Blueprint
-Fitness's), write `FirebaseInventoryRepository implements InventoryRepository`
-(and the installation one), and change those two lines in `main.dart`.
+**To go live later:** `firebase_core` is already added + `Firebase.initializeApp()`
+already runs against **Brandon's own** project (done in the Firebase-core step).
+The remaining data-swap work: add `cloud_firestore`, write
+`FirebaseInventoryRepository implements InventoryRepository` (and the
+installation one) reading/writing Brandon's Firestore, and change those two
+provider-override lines in `main.dart`. Never Blueprint Fitness's project.
 
 **The screens, widgets, theme, and navigation do NOT change** when Firebase is
 plugged in — they only ever see the interface. That is the entire point of the

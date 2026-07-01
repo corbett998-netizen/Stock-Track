@@ -40,6 +40,7 @@ dependencies:
 
   # Date / number formatting (Recent Installations dates, "Installed Today").
   intl: ^0.20.2
+  firebase_core: ^4.11.0
 
   # NOTE: NO Firebase in this slice (frontend-first, mock/local data). The
   # repository interfaces in lib/data/repositories/ are the seam where a
