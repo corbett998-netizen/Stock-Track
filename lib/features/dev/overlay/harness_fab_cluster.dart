@@ -108,10 +108,16 @@ class _HarnessFabClusterState extends ConsumerState<HarnessFabCluster> {
     if (!kHarnessEnabled) return widget.child;
     // Keep the launcher's root-navigator handle current (idempotent).
     SingleInstanceLauncher.navigatorKey = widget.navigatorKey;
-    return Stack(children: [widget.child, _cluster(context)]);
+    // Owner-only gate: the cluster renders ONLY for the pinned owner uid, so
+    // kHarnessEnabled = true (release-safe) never surfaces the harness to any
+    // other signed-in install. Null (still resolving / not signed in) also hides it.
+    final uid = ref.watch(ownerUidProvider).valueOrNull;
+    if (uid != kOwnerUid) return widget.child;
+    // Safe: uid == kOwnerUid above, and kOwnerUid is a non-null String literal.
+    return Stack(children: [widget.child, _cluster(context, uid!)]);
   }
 
-  Widget _cluster(BuildContext context) {
+  Widget _cluster(BuildContext context, String uid) {
     final media = MediaQuery.of(context);
     final size = media.size;
 
@@ -150,16 +156,14 @@ class _HarnessFabClusterState extends ConsumerState<HarnessFabCluster> {
       _savePosition(frac);
     }
 
-    // The resolved owner uid (null while it resolves / on error) — buttons that need
-    // it are disabled and badge-less until it lands (BP's `uid == null` guard).
-    final uid = ref.watch(ownerUidProvider).valueOrNull;
+    // uid is the resolved owner uid — build() only calls _cluster once it has
+    // matched kOwnerUid, so it's always non-null and always the owner here.
     final rootCtx = widget.navigatorKey?.currentContext ?? context;
 
     // Register this uid for push once it resolves (firebase mode only — mock has no
     // backend). Guarded to fire once per distinct uid; registerForUser is fully wrapped
     // and never throws, so it can't disturb the cluster build.
-    if (uid != null &&
-        uid != _pushRegisteredUid &&
+    if (uid != _pushRegisteredUid &&
         kHarnessMode == HarnessMode.firebase) {
       _pushRegisteredUid = uid;
       HarnessPushService.instance.registerForUser(uid);

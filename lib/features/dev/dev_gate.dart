@@ -1,13 +1,16 @@
-import 'package:flutter/foundation.dart';
-
 /// Dev-gating for the owner/operator harness (ported from Blueprint Fitness,
 /// re-instantiated for Stock-Track / easy-stock-track).
 ///
 /// The harness surfaces (owner↔orchestrator chat, report capture, report queue,
-/// command center) are DEV-ONLY: they render only when [kHarnessEnabled] is true.
-/// In a release build they are compiled-in but hidden (mirrors BP's `!kReleaseMode`
-/// gate). Flip nothing to ship a clean release — the FAB simply never mounts.
-const bool kHarnessEnabled = !kReleaseMode;
+/// command center) are enabled in ALL build modes, including release — the FAB
+/// cluster gates on identity instead (see [kOwnerUid]), so only the pinned owner
+/// uid ever sees it, regardless of build mode.
+const bool kHarnessEnabled = true;
+
+/// The owner's Firebase Auth UID — the harness FAB cluster only renders for this
+/// uid (see [HarnessFabCluster]), so enabling the harness in a release build does
+/// not surface it to every installer, only to this one signed-in identity.
+const String kOwnerUid = 'L7TFQ17wUOcjUZzlQortVza1iFe2';
 
 /// The data-source mode for the harness — the ONE switch (mirrors Stock-Track's
 /// inventory Mock↔Firebase seam). `firebase` persists to easy-stock-track (the

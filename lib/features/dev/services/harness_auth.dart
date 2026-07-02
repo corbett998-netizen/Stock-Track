@@ -1,5 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 
+import '../dev_gate.dart';
+
 /// The owner-identity seam for the harness.
 ///
 /// PORT NOTE (thin-seam #2): Blueprint resolved the owner UID via its own
@@ -49,7 +51,10 @@ class FirebaseHarnessAuth implements HarnessAuth {
 
 /// In-memory owner identity for the Rung-0 mock demo (no Firebase).
 class MockHarnessAuth implements HarnessAuth {
-  static const String _uid = 'mock-owner-brandon';
+  // Mock mode's whole in-memory identity IS the owner, so it's pinned to
+  // kOwnerUid — the FAB cluster's owner-uid gate (HarnessFabCluster) matches
+  // in mock mode the same way it does in firebase mode.
+  static const String _uid = kOwnerUid;
 
   @override
   String? get currentUid => _uid;
