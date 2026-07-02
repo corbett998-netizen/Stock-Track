@@ -32,4 +32,4 @@ const HarnessMode kHarnessMode = HarnessMode.firebase;
 /// mode / on-device this session), and firebase-mode surfaces show a clear
 /// "Storage off" state instead of crashing. Flip to true the moment Brandon enables
 /// Storage in easy-stock-track (the ONLY switch — the upload seam is already wired).
-const bool kHarnessStorageEnabled = false;
+const bool kHarnessStorageEnabled = true;
