@@ -25,7 +25,7 @@
 
 1. **Everything pins to `easy-stock-track`.** Never BP's Firebase project
    (`blueprintfitnesssubscriptions`), never BP's service-account, never BP's UID
-   (`9kc4UuTkrJO9VJ7Pjut9yx528kj1`), never BP's collections/bucket/App-Dist id.
+   (`<owner-reference-app-test-uid-redacted>`), never BP's collections/bucket/App-Dist id.
 2. **Permissions, never a shared key/token.** To let the orchestrator reach Brandon's project, Brandon
    grants an *identity* IAM access — he never emails/commits a service-account key or password (Pete's
    security rule; already the decided path in `FOR_BRANDON_enable_tester_pipeline.md`).

@@ -21,7 +21,7 @@
 1. **Never use Blueprint Fitness's Firebase project, service accounts, secrets, `FIREBASE_TOKEN`,
    storage bucket, chat collections (`orchestratorChat/<pete-uid>`), report queue (`mobileIssueReports`),
    dogfood store, or signing keys for Stock-Track.** BP's project `blueprintfitnesssubscriptions`, BP's
-   canonical UID `9kc4UuTkrJO9VJ7Pjut9yx528kj1`, and BP's `service-account.json` are BP's. Stock-Track
+   canonical UID `<owner-reference-app-test-uid-redacted>`, and BP's `service-account.json` are BP's. Stock-Track
    gets its **own** everything.
 2. **Never mix Brandon's messages, dogfood reports, owner-decisions, or dev-state into BP** (and no BP
    data into Brandon's). Separate Firestore project, separate collections, separate registers, separate
@@ -277,7 +277,7 @@ All of the above live in **Brandon's** Firestore/Storage, keyed by **Brandon's**
 |---|---|---|---|
 | **Firebase project id** | `blueprintfitnesssubscriptions` | ❌ TO CREATE | Brandon creates his OWN project (his Google account/billing). Gate for cloud data + App-Dist + harness. |
 | **Chat collections** | `orchestratorChat/<pete-uid>` in BP project | ❌ TO CREATE (same-named, Brandon's project) | Provisioned when Brandon's Firebase + first message land. Lives in Brandon's Firestore, **never** BP's. |
-| **User IDs** | Pete `9kc4UuTkrJO9VJ7Pjut9yx528kj1` | ❌ TO CREATE | Brandon's Firebase Auth UID, set when Brandon signs in on his build. Never Pete's UID. |
+| **User IDs** | Pete `<owner-reference-app-test-uid-redacted>` | ❌ TO CREATE | Brandon's Firebase Auth UID, set when Brandon signs in on his build. Never Pete's UID. |
 | **Attachments / Storage paths** | BP bucket, `orchestratorChat/<pete-uid>/docs|media` | ❌ TO CREATE (later) | Brandon's bucket `<brandon-project>.firebasestorage.app`, paths under Brandon's UID, owner-read rules. |
 | **Dogfood checklist / report queue** | `mobileIssueReports` (BP project) | ❌ TO CREATE | Stock-Track's own `stockIssueReports` (name TBD) in Brandon's Firestore. **Never** BP's collection. (Distribution plan Stage 3.) |
 | **Decisions register** | `AWAITING_PETE.md` (BP repo) | ✅ DONE | `Brandons_App/docs/DECISIONS.md` — separate repo, separate ledger. |
