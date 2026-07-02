@@ -58,6 +58,13 @@ dependencies:
   # tap deep-links into the harness chat. 16.x is the firebase_core-4.x-compatible line
   # (Blueprint's 14.x pin was for its older firebase_core). Harness-infra only.
   firebase_messaging: ^16.4.1
+  # Foreground heads-up notification (reusable-harness parity): Android does NOT
+  # auto-display an FCM `notification` payload while the app is FOREGROUNDED — the
+  # onMessage handler must post the banner itself. This plugin posts that heads-up on
+  # the high-importance channel so an orchestrator reply pops whether the app is open
+  # OR backgrounded. Config-driven (channel id/title from harness_config). Harness-infra
+  # only. 19.x is the Dart-3.8 / firebase_messaging-16 compatible line.
+  flutter_local_notifications: ^19.1.0
   image_picker: ^1.1.2
   shared_preferences: ^2.5.3
   package_info_plus: ^9.0.1

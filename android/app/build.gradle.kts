@@ -18,6 +18,10 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+        // Required by flutter_local_notifications (harness push heads-up): the plugin uses
+        // java.time APIs that must be desugared to run on minSdk 23. Without this the
+        // release build fails. Paired with the desugar_jdk_libs dependency below.
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -48,4 +52,10 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // Core-library desugaring runtime for flutter_local_notifications (harness push
+    // heads-up). Must be present when isCoreLibraryDesugaringEnabled = true above.
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }
