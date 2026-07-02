@@ -137,12 +137,14 @@ class _OrchestratorChatScreenState extends ConsumerState<OrchestratorChatScreen>
       _messages.items.where((m) => _selected.contains(m.id)).toList();
 
   void _copyOne(ChatItem m) {
+    // No snackbar here: the bubble itself gives the copy confirm (fades to gray +
+    // a "copied ✓" badge), so a snackbar would be duplicate feedback. Bulk copy
+    // and the header context-copies keep their snackbars (no per-bubble confirm).
     Clipboard.setData(
       ClipboardData(
         text: ChatExport.oneBubble(m, ownerRole: HarnessConfig.ownerRole),
       ),
     );
-    _snack('Copied');
   }
 
   void _copySelected() {
@@ -314,6 +316,9 @@ class _OrchestratorChatScreenState extends ConsumerState<OrchestratorChatScreen>
       itemBuilder: (context, i) {
         final it = items[i];
         return ChatBubble(
+          // Bind the bubble's (transient) copied-confirm state to the message id so
+          // it follows the correct message when the list grows/reorders.
+          key: ValueKey(it.id),
           text: it.text,
           isOwner: it.role == HarnessConfig.ownerRole,
           accent: HarnessTheme.accent,

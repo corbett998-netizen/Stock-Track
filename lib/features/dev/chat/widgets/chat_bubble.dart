@@ -1,16 +1,23 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 
 /// One chat bubble — owner (right, accent) vs orchestrator (left, surface). Chunk 4
 /// adds per-bubble copy + multi-select; Chunk 5 adds an inline image attachment
-/// (tap to zoom).
+/// (tap to zoom). Chunk 6 adds the copy VISUAL CONFIRM: once copied, the bubble
+/// fades to gray + a tappable "copied ✓" badge appears (auto-reverts after a moment,
+/// or tap the badge to undo), so the owner can see the text is on the clipboard.
 ///
 /// PART OF THE REUSABLE HARNESS FRAMEWORK — app-agnostic; accent + callbacks passed
 /// in. Uses plain `Text` (not `SelectableText`) so long-press cleanly enters
 /// multi-select instead of fighting the OS text-selection handles; the copy icon +
 /// bulk-copy cover the copy-out need.
-class ChatBubble extends StatelessWidget {
+///
+/// Stateful only for the transient copied-confirm flag — the copy PAYLOAD stays with
+/// the parent's [onCopy] (it owns the clipboard write); this widget just reflects that
+/// a copy happened. Pure presentation: no Firestore / schema / rules involvement.
+class ChatBubble extends StatefulWidget {
   const ChatBubble({
     super.key,
     required this.text,
@@ -31,7 +38,8 @@ class ChatBubble extends StatelessWidget {
   /// An attached image — a Storage URL or a local file path. Null = text-only.
   final String? imageUrl;
 
-  /// Copy just this bubble (per-bubble copy icon). Hidden in selection mode.
+  /// Copy just this bubble (per-bubble copy icon). Hidden in selection mode. This
+  /// widget calls it, then shows its own gray-out + "copied" confirm.
   final VoidCallback? onCopy;
 
   /// Tap handler — in selection mode, toggles this bubble's membership.
@@ -44,7 +52,45 @@ class ChatBubble extends StatelessWidget {
   final bool selectionMode;
 
   @override
+  State<ChatBubble> createState() => _ChatBubbleState();
+}
+
+class _ChatBubbleState extends State<ChatBubble> {
+  /// How long the copied confirm lingers before it auto-reverts.
+  static const Duration _confirmLinger = Duration(milliseconds: 1800);
+
+  /// A dedicated confirm-green, deliberately NOT the accent — so the "copied"
+  /// state never reads as (or collides with) a selection/accent colour.
+  static const Color _confirmGreen = Color(0xFF3DD68C);
+
+  bool _copied = false;
+  Timer? _revertTimer;
+
+  void _handleCopy() {
+    // The parent owns the actual clipboard write (the copy payload).
+    widget.onCopy?.call();
+    _revertTimer?.cancel();
+    setState(() => _copied = true);
+    _revertTimer = Timer(_confirmLinger, () {
+      if (mounted) setState(() => _copied = false);
+    });
+  }
+
+  void _revert() {
+    _revertTimer?.cancel();
+    if (mounted) setState(() => _copied = false);
+  }
+
+  @override
+  void dispose() {
+    _revertTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final isOwner = widget.isOwner;
+    final accent = widget.accent;
     final baseColor = isOwner
         ? accent.withValues(alpha: 0.22)
         : Colors.white.withValues(alpha: 0.06);
@@ -55,7 +101,7 @@ class ChatBubble extends StatelessWidget {
       margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 10),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: selected ? accent.withValues(alpha: 0.32) : baseColor,
+        color: widget.selected ? accent.withValues(alpha: 0.32) : baseColor,
         borderRadius: BorderRadius.only(
           topLeft: const Radius.circular(16),
           topRight: const Radius.circular(16),
@@ -63,12 +109,12 @@ class ChatBubble extends StatelessWidget {
           bottomRight: Radius.circular(isOwner ? 4 : 16),
         ),
         border: Border.all(
-          color: selected
+          color: widget.selected
               ? accent
               : (isOwner
                     ? accent.withValues(alpha: 0.5)
                     : Colors.white.withValues(alpha: 0.08)),
-          width: selected ? 1.5 : 1,
+          width: widget.selected ? 1.5 : 1,
         ),
       ),
       child: Column(
@@ -79,11 +125,13 @@ class ChatBubble extends StatelessWidget {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (selectionMode) ...[
+              if (widget.selectionMode) ...[
                 Icon(
-                  selected ? Icons.check_circle : Icons.radio_button_unchecked,
+                  widget.selected
+                      ? Icons.check_circle
+                      : Icons.radio_button_unchecked,
                   size: 13,
-                  color: selected ? accent : Colors.white38,
+                  color: widget.selected ? accent : Colors.white38,
                 ),
                 const SizedBox(width: 5),
               ],
@@ -98,31 +146,35 @@ class ChatBubble extends StatelessWidget {
                   ),
                 ),
               ),
-              if (!selectionMode && onCopy != null) ...[
+              if (!widget.selectionMode && widget.onCopy != null) ...[
                 const SizedBox(width: 6),
-                InkWell(
-                  onTap: onCopy,
-                  borderRadius: BorderRadius.circular(10),
-                  child: Padding(
-                    padding: const EdgeInsets.all(2),
-                    child: Icon(
-                      Icons.copy,
-                      size: 13,
-                      color: Colors.white.withValues(alpha: 0.45),
-                    ),
-                  ),
-                ),
+                // The copy affordance turns into the "copied ✓" confirm once tapped;
+                // tapping the confirm undoes it (matches the reference behaviour).
+                _copied
+                    ? _copiedBadge()
+                    : InkWell(
+                        onTap: _handleCopy,
+                        borderRadius: BorderRadius.circular(10),
+                        child: Padding(
+                          padding: const EdgeInsets.all(2),
+                          child: Icon(
+                            Icons.copy,
+                            size: 13,
+                            color: Colors.white.withValues(alpha: 0.45),
+                          ),
+                        ),
+                      ),
               ],
             ],
           ),
-          if ((imageUrl ?? '').isNotEmpty) ...[
+          if ((widget.imageUrl ?? '').isNotEmpty) ...[
             const SizedBox(height: 6),
-            _image(context, imageUrl!),
+            _image(context, widget.imageUrl!),
           ],
-          if (text.isNotEmpty) ...[
+          if (widget.text.isNotEmpty) ...[
             const SizedBox(height: 3),
             Text(
-              text,
+              widget.text,
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 15,
@@ -137,9 +189,49 @@ class ChatBubble extends StatelessWidget {
     return Align(
       alignment: isOwner ? Alignment.centerRight : Alignment.centerLeft,
       child: GestureDetector(
-        onTap: onTap,
-        onLongPress: onLongPress,
-        child: bubble,
+        onTap: widget.onTap,
+        onLongPress: widget.onLongPress,
+        // Copied → fade the whole bubble toward gray so the confirm is unmistakable.
+        child: AnimatedOpacity(
+          opacity: _copied ? 0.5 : 1.0,
+          duration: const Duration(milliseconds: 200),
+          child: bubble,
+        ),
+      ),
+    );
+  }
+
+  /// Small tappable "copied ✓" pill shown in place of the copy icon after a copy.
+  /// Tapping it reverts immediately (undo); it also auto-reverts via [_confirmLinger].
+  Widget _copiedBadge() {
+    return InkWell(
+      onTap: _revert,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: _confirmGreen.withValues(alpha: 0.20),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: _confirmGreen.withValues(alpha: 0.7),
+          ),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.check, size: 11, color: _confirmGreen),
+            SizedBox(width: 3),
+            Text(
+              'copied',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.3,
+                color: _confirmGreen,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -158,7 +250,9 @@ class ChatBubble extends StatelessWidget {
           );
     return GestureDetector(
       // In selection mode a tap toggles the bubble; otherwise it zooms the image.
-      onTap: selectionMode ? onTap : () => showChatImageZoom(context, source),
+      onTap: widget.selectionMode
+          ? widget.onTap
+          : () => showChatImageZoom(context, source),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(10),
         child: ConstrainedBox(

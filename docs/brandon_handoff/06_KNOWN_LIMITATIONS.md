@@ -47,14 +47,14 @@
   being enabled for the app — check Android **Settings → Apps → (this app) → Notifications** and
   turn them on, then retry.
 
-## 4. The "copy message → fade-to-gray + copied ✓" confirm is DEFERRED  · [deferred, low risk]
+## 4. Copy-message confirm (fade-to-gray + copied ✓) — DONE  · [implemented]
 
-- In the source harness, copying a chat message dims the bubble and shows a small green
-  "copied ✓" badge you can tap to undo. **That visual confirm is not in your build yet.**
-- Copy still *works* — it puts the text on the clipboard and shows a "Copied" message; it just
-  doesn't dim the bubble or show the badge.
-- It's assessed as **safe and low-effort** to add (pure presentation, one per-message flag, no
-  cloud/rules change) and is queued to fold in. No action needed from you.
+- Copying a chat message now **dims the bubble to gray and shows a small green "copied ✓" badge**
+  (tappable to undo; auto-reverts after ~1.8s) — matching the reference harness, so you can see
+  exactly what you copied before pasting it into ChatGPT.
+- The old single-bubble "Copied" snackbar was removed (the bubble itself is the confirm now);
+  bulk / multi-select copy keeps its snackbar.
+- Ships in the fresh build — confirm on-device (copy a bubble → it grays + shows "copied ✓").
 
 ## 5. Floating tool cluster + workflow tagging — PENDING OWNER REVIEW  · [owner decision]
 
@@ -95,16 +95,21 @@ Two harness-surface items are deliberately **not** auto-applied because they're 
 - *Requires Brandon (you) personally:* enabling Storage. Everything else (rules deploy) your
   orchestrator handles.
 
-## 8. Mic continuous re-arm — confirm on YOUR device  · [owed on your device]
+## 8. Mic — on-device recognizer parity + a homophone caveat  · [confirm on your device]
 
-- The mic was ported to the exact reference standard (dual-engine voice; continuous dictation
-  that re-arms across a natural pause; fills the report draft) and validated, but its
-  **on-device behavior on your phone is confirmed by you** in `05_DOGFOOD_FLOW.md` step 12 —
-  same principle as push: a ported capability isn't "proven for you" until it runs on your
-  hardware.
-- Minor open item: the offline speech-model's distribution/licensing story (bundled vs
-  downloaded) is a clean-up to finalise before any public release — not a blocker for your
-  dogfood.
+- The mic uses the phone's **on-device** recognizer with byte-identical config to the reference
+  (dual-engine: on-device SpeechRecognizer by default + an optional offline engine on long-press;
+  continuous re-arm across a pause; fills the report draft). The earlier **online cloud**
+  recognizer (which name-predicts homophones, e.g. "mic" → "Mike") was already removed — that was
+  the real cause of the "Mike" spelling, and it is gone.
+- **Homophone caveat (not app-fixable):** "mic" and "Mike" are exact homophones; the on-device
+  recognizer chooses between them from its language model + surrounding context, so an occasional
+  flip can still happen — identically to the reference app. There is no per-word forcing in the
+  platform API. This is best-achievable parity, not a per-utterance guarantee.
+- Confirm on-device (`05_DOGFOOD_FLOW.md` step 12). Quick parity sanity-check: say "mic" a few
+  times on both this app and the reference on the same phone — expect similar behavior.
+- Minor open item: the offline model's distribution/licensing (bundled vs downloaded) is a
+  pre-public-release cleanup, not a dogfood blocker.
 
 ## 9. Chat image / file attachments are not in the chat composer yet  · [deferred, Storage-gated]
 
