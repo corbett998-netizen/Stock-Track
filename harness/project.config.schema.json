@@ -62,7 +62,9 @@
       "properties": {
         "title": { "type": "string" },
         "androidChannelId": { "type": "string" },
-        "dataRoute": { "type": "string" }
+        "dataRoute": { "type": "string" },
+        "tokenCollection": { "type": "string", "description": "Firestore collection whose {uid} doc holds the owner's FCM device token (app writes it, orchestrator reads it)." },
+        "tokenField": { "type": "string", "description": "Field name on the {uid} doc that holds the FCM token." }
       }
     },
     "collections": {

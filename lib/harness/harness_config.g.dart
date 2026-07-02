@@ -35,6 +35,10 @@ class HarnessConfig {
   static const String pushAndroidChannelId = 'stocktrack_ops_channel';
   /// project.config.json: push.dataRoute
   static const String pushDataRoute = 'stocktrack_chat';
+  /// project.config.json: push.tokenCollection
+  static const String pushTokenCollection = 'orchestratorChat';
+  /// project.config.json: push.tokenField
+  static const String pushTokenField = 'fcmToken';
   /// project.config.json: harness.orchestratorBridge
   static const String orchestratorBridge = 'off';
   /// project.config.json: harness.backendLabel

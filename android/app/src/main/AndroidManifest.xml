@@ -1,6 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Harness voice dictation (mic-to-note / mic-to-chat via the OS speech seam). -->
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <!-- Harness push parity: Android 13+ runtime notification permission (POST_NOTIFICATIONS
+         is requested at runtime by HarnessPushService.registerForUser). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application
         android:label="Stock-Track"
         android:name="${applicationName}"
@@ -27,6 +30,18 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- Harness push parity (firebase_messaging). Default channel + icon for
+             background/terminated FCM notifications that carry a `notification` payload.
+             The channel id MUST match push.androidChannelId in harness/project.config.json
+             and the channel created in MainActivity.kt. The icon falls back to the app
+             launcher mipmap (Android tints/masks it) so no new drawable is needed. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="stocktrack_ops_channel" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@mipmap/ic_launcher" />
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

@@ -232,8 +232,8 @@ function runSelftest() {
   // interpolation MECHANICS — values derive from other config keys (no hardcoded expectation)
   ok('serviceAccountPath = ${paths.repoRoot}/service-account.json',
      get('firebase.serviceAccountPath', cfg) === get('paths.repoRoot', cfg) + '/service-account.json');
-  ok('owner.fcmTokenPath = users/${owner.uid}/fcmToken',
-     get('owner.fcmTokenPath', cfg) === 'users/' + get('owner.uid', cfg) + '/fcmToken');
+  ok('owner.fcmTokenPath = ${push.tokenCollection}/${owner.uid}/${push.tokenField}',
+     get('owner.fcmTokenPath', cfg) === get('push.tokenCollection', cfg) + '/' + get('owner.uid', cfg) + '/' + get('push.tokenField', cfg));
   ok('storage.chatMedia = ${collections.chatRoot}/${owner.uid}/media',
      get('storage.chatMedia', cfg) === get('collections.chatRoot', cfg) + '/' + get('owner.uid', cfg) + '/media');
   ok('storage.localMediaDir = ${paths.logsDir}/chat_media',

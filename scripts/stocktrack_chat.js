@@ -17,8 +17,8 @@
  * is reachable from the resolved config — structurally incapable of touching BP.
  *
  *   node stocktrack_chat.js --read [sinceMillis]   print the owner's messages after sinceMillis + maxMillis cursor
- *   node stocktrack_chat.js --send "reply text"    post an orchestrator reply (+ bump the poke)
- *   node stocktrack_chat.js --build "1.0(N) — …"   post a build message + auto-create a dogfood check-item
+ *   node stocktrack_chat.js --send "reply text"    post an orchestrator reply (+ bump the poke + FCM push the owner)
+ *   node stocktrack_chat.js --build "1.0(N) — …"   post a build message + auto-create a dogfood check-item (+ FCM push)
  *   node stocktrack_chat.js --reports              list the owner's report queue (id + status + title)
  *   node stocktrack_chat.js --report <id>          print ONE report in full (status, evidence, screenshots)
  *   node stocktrack_chat.js --logs <id>            print a report's device-log tail (logsInline)
@@ -58,12 +58,24 @@ const REPORTS_COLLECTION = harness.get('collections.reports');
 const POKE_DOC = harness.get('collections.poke');
 const OWNER_ROLE = harness.get('project.ownerRole');
 
+// ─── Push-notification parity (ported Blueprint pattern) ─────────────────────────
+// An orchestrator reply ALSO sends an FCM push to the owner's device so it notifies
+// immediately + a tap deep-links into the harness chat (which then refreshes). All
+// config-driven (never a hardcoded app noun); the token location + presentation come
+// from harness/project.config.json's push.* section.
+const PUSH_TITLE = harness.tryGet('push.title', `${OWNER_ROLE} ops`);
+const PUSH_CHANNEL_ID = harness.tryGet('push.androidChannelId', 'harness_ops_channel');
+const PUSH_ROUTE = harness.tryGet('push.dataRoute', 'orchestrator_chat');
+const PUSH_TOKEN_COLLECTION = harness.tryGet('push.tokenCollection', CHAT_ROOT);
+const PUSH_TOKEN_FIELD = harness.tryGet('push.tokenField', 'fcmToken');
+
 // ─── SEPARATION: BP-ABORT GUARD (R1) ────────────────────────────────────────────
 // Any Blueprint identity reachable from the resolved config = refuse to run. Makes
 // cross-writing BP structurally impossible (blocklist in scripts/bp_guard.js).
 function assertNoBpLeak() {
   assertStockTrackOnly(
-    [PROJECT_ID, STORAGE_BUCKET, CHAT_ROOT, REPORTS_COLLECTION, POKE_DOC, OWNER_ROLE],
+    [PROJECT_ID, STORAGE_BUCKET, CHAT_ROOT, REPORTS_COLLECTION, POKE_DOC, OWNER_ROLE,
+      PUSH_TITLE, PUSH_CHANNEL_ID, PUSH_ROUTE, PUSH_TOKEN_COLLECTION, PUSH_TOKEN_FIELD],
     PROJECT_ID,
   );
 }
@@ -141,6 +153,43 @@ async function bumpPoke(uid, note) {
   } catch (e) { /* best-effort — never fail the reply on a poke hiccup */ }
 }
 
+// Send an FCM push to the owner's phone so an orchestrator reply notifies IMMEDIATELY
+// and a tap deep-links into the harness chat, which then refreshes. This is the ported
+// Blueprint parity capability: on a real device the Firestore Watch stream is not
+// reliably real-time, but the FCM push reaches the phone at once — so the push also
+// CARRIES the message ({id, role, text, createdAtMs} as FCM data strings) and the app
+// injects it straight into the chat overlay for an instant render (Firestore stays the
+// durable store; the app dedupes by doc id). Auth = ADC (no key/token). NEVER throws —
+// a push failure must never break the chat write. Inert (token absent) until the app
+// registers a token, so it is safe to call before the push-enabled app build ships.
+async function sendPush(text, meta, uid) {
+  try {
+    if (!uid) return;
+    const admin = require('firebase-admin');
+    // db() ensures the Admin SDK is initialized (ADC) + the BP-abort guard has run.
+    const snap = await db().collection(PUSH_TOKEN_COLLECTION).doc(uid).get();
+    const token = snap.exists ? snap.data()[PUSH_TOKEN_FIELD] : null;
+    if (!token) return; // owner hasn't registered a device token yet — inert, no-op.
+    const data = { route: PUSH_ROUTE };
+    if (meta && meta.id) {
+      // FCM data values MUST be strings. Older app builds ignore the extra fields.
+      data.id = String(meta.id);
+      data.role = String(meta.role || 'orchestrator');
+      data.text = String(text).slice(0, 3000); // well under the 4KB data-payload cap.
+      data.createdAtMs = String(meta.createdAtMs || Date.now());
+    }
+    await admin.messaging().send({
+      token,
+      notification: { title: PUSH_TITLE, body: String(text).replace(/\s+/g, ' ').slice(0, 140) },
+      data,
+      android: { priority: 'high', notification: { channelId: PUSH_CHANNEL_ID } },
+    });
+    console.log('STOCKTRACK-CHAT | push sent to owner device');
+  } catch (e) {
+    console.error('STOCKTRACK-CHAT | push skipped (non-fatal):', (e && e.message) || e);
+  }
+}
+
 async function cmdRead(sinceMs, uid) {
   const snap = await messages(uid).orderBy('createdAt').get();
   let maxMs = 0;
@@ -164,13 +213,15 @@ async function cmdSend(text, uid) {
     return previewWrite(`${CHAT_ROOT}/${uid}/messages`, { role: 'orchestrator', text, via: 'text' });
   }
   const admin = require('firebase-admin');
-  await messages(uid).add({
+  const ref = await messages(uid).add({
     role: 'orchestrator',
     text,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
     via: 'text',
   });
   await bumpPoke(uid, `orch reply: ${text}`);
+  // Push parity: notify the owner's device + carry the message for an instant render.
+  await sendPush(text, { id: ref.id, role: 'orchestrator', createdAtMs: Date.now() }, uid);
   console.log(`STOCKTRACK-CHAT RESULT: PASS | sent orchestrator reply to thread ${uid}`);
 }
 
@@ -182,7 +233,7 @@ async function cmdBuild(msg, uid) {
     );
   }
   const admin = require('firebase-admin');
-  await messages(uid).add({
+  const msgRef = await messages(uid).add({
     role: 'orchestrator',
     text: msg,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -202,6 +253,8 @@ async function cmdBuild(msg, uid) {
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
   });
   await bumpPoke(uid, `build: ${msg}`);
+  // Push parity: notify the owner's device + carry the build message for instant render.
+  await sendPush(msg, { id: msgRef.id, role: 'orchestrator', createdAtMs: Date.now() }, uid);
   console.log(`STOCKTRACK-CHAT RESULT: PASS | build message + dogfood check-item created in thread ${uid}`);
 }
 
@@ -325,6 +378,15 @@ function runSelfTest() {
   eq('resolved config carries NO BP literal',
     findBpLeak([PROJECT_ID, STORAGE_BUCKET, CHAT_ROOT, REPORTS_COLLECTION, POKE_DOC, OWNER_ROLE]), null);
   eq('storage bucket pinned to easy-stock-track', STORAGE_BUCKET.startsWith('easy-stock-track'), true);
+
+  // push-notification parity: config resolves + carries no BP literal (the BP push
+  // channel `orchestrator_chat_channel` must never leak into the Stock-Track send).
+  eq('push route is stocktrack_chat', PUSH_ROUTE, 'stocktrack_chat');
+  eq('push channel is stocktrack_ops_channel', PUSH_CHANNEL_ID, 'stocktrack_ops_channel');
+  eq('push token collection is the harness chat root', PUSH_TOKEN_COLLECTION, 'orchestratorChat');
+  eq('push token field is fcmToken', PUSH_TOKEN_FIELD, 'fcmToken');
+  eq('resolved push config carries NO BP literal',
+    findBpLeak([PUSH_TITLE, PUSH_CHANNEL_ID, PUSH_ROUTE, PUSH_TOKEN_COLLECTION, PUSH_TOKEN_FIELD]), null);
 
   let failed = 0;
   for (const c of cases) {

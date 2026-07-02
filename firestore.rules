@@ -27,9 +27,12 @@ service cloud.firestore {
       // Messages are append-only from the client; no client update/delete.
       allow update, delete: if false;
     }
-    // The owner may read their own thread doc (if ever created); no arbitrary writes.
+    // The owner may read + write their OWN thread doc — this is where the app stores its
+    // FCM device token (push.tokenCollection == orchestratorChat, field `fcmToken`) so
+    // the orchestrator (Admin SDK, bypasses rules) can push-notify this device. Scoped to
+    // the caller's own uid; no cross-user access.
     match /orchestratorChat/{uid} {
-      allow read: if signedIn() && request.auth.uid == uid;
+      allow read, write: if signedIn() && request.auth.uid == uid;
     }
 
     // --- Report queue: stockIssueReports/{report} ---

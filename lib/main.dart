@@ -6,8 +6,11 @@ import 'app.dart';
 import 'data/providers/repository_providers.dart';
 import 'data/repositories/installation_repository.dart';
 import 'data/repositories/inventory_repository.dart';
+import 'features/dev/chat/screens/orchestrator_chat_screen.dart';
 import 'features/dev/chat/services/chat_repository.dart';
 import 'features/dev/dev_gate.dart';
+import 'features/dev/overlay/single_instance_launcher.dart';
+import 'features/dev/push/harness_push_service.dart';
 import 'features/dev/report_queue/services/report_repository.dart';
 import 'features/dev/services/harness_auth.dart';
 import 'features/dev/services/harness_local_store.dart';
@@ -35,6 +38,10 @@ Future<void> main() async {
   // untouched — Firestore already persists server-side.
   final harnessOverrides = await _harnessOverrides();
 
+  // Push-notification parity: wire the FCM handlers (background handler must be
+  // registered before runApp). App-specific seam — see _wireHarnessPush.
+  await _wireHarnessPush();
+
   runApp(
     ProviderScope(
       // ===========================================================
@@ -58,6 +65,30 @@ Future<void> main() async {
       child: const StockTrackApp(),
     ),
   );
+}
+
+/// Wire the reusable harness PUSH capability (ported parity feature).
+///
+/// This is the ONE app-specific push seam — the framework push service
+/// ([HarnessPushService]) is app-agnostic and takes an injected "open the chat surface"
+/// action, which is the only place a concrete screen/route is named. Push is harness
+/// infra, so it is gated to dev builds ([kHarnessEnabled]) + firebase mode (mock has no
+/// backend to push from). Fully guarded — never blocks launch.
+Future<void> _wireHarnessPush() async {
+  if (!kHarnessEnabled || kHarnessMode != HarnessMode.firebase) return;
+  // Deep-link target: open the SAME orchestrator-chat surface the cluster tool opens,
+  // under the SAME launcher key so a repeat tap is a no-op (never a stacked duplicate).
+  HarnessPushService.instance.openChatSurface = (uid) {
+    SingleInstanceLauncher.pushRoute<void>(
+      'orchestrator_chat',
+      MaterialPageRoute<void>(
+        builder: (_) => OrchestratorChatScreen(uid: uid),
+        fullscreenDialog: true,
+      ),
+      exclusive: true,
+    );
+  };
+  await HarnessPushService.instance.init();
 }
 
 /// The harness trio, selected by [kHarnessMode].

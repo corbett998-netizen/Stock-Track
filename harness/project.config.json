@@ -29,12 +29,15 @@
   "owner": {
     "_comment": "Anonymous Auth means the owner UID is a RUNTIME value (per install), NOT a fixed literal. This placeholder only satisfies the schema/interpolation; the app keys the thread by the live anon uid, and stocktrack_chat.js AUTO-DISCOVERS the active thread (or takes --uid / STOCKTRACK_OWNER_UID).",
     "uid": "RUNTIME_ANON_UID",
-    "fcmTokenPath": "users/${owner.uid}/fcmToken"
+    "fcmTokenPath": "${push.tokenCollection}/${owner.uid}/${push.tokenField}"
   },
   "push": {
+    "_comment": "Push-notification parity (ported Blueprint pattern). title/androidChannelId/dataRoute drive the app + orchestrator-side FCM send. tokenCollection/tokenField say WHERE the app stores the device FCM token (config-driven, kept inside the harness's OWN chat collection so no extra collection is introduced) and WHERE the orchestrator reads it. The orchestrator sends via admin.messaging().send (ADC, no key).",
     "title": "Stock-Track Ops",
     "androidChannelId": "stocktrack_ops_channel",
-    "dataRoute": "stocktrack_chat"
+    "dataRoute": "stocktrack_chat",
+    "tokenCollection": "${collections.chatRoot}",
+    "tokenField": "fcmToken"
   },
   "collections": {
     "chatRoot": "orchestratorChat",

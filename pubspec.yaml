@@ -53,6 +53,11 @@ dependencies:
   cloud_firestore: ^6.1.0
   firebase_auth: ^6.4.0
   firebase_storage: ^13.1.0
+  # Push-notification parity (reusable-harness capability): FCM token registration +
+  # incoming-message handlers so an orchestrator reply notifies the owner's phone and a
+  # tap deep-links into the harness chat. 16.x is the firebase_core-4.x-compatible line
+  # (Blueprint's 14.x pin was for its older firebase_core). Harness-infra only.
+  firebase_messaging: ^16.4.1
   image_picker: ^1.1.2
   shared_preferences: ^2.5.3
   package_info_plus: ^9.0.1

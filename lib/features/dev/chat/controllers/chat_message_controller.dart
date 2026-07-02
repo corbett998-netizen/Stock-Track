@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../../../core/utils/harness_logger.dart';
+import '../../push/harness_chat_inbox.dart';
 import '../models/chat_item.dart';
 import '../services/chat_repository.dart';
 
@@ -36,14 +37,31 @@ class ChatMessageController {
   String? _uid;
   bool _pollInFlight = false;
 
+  /// The durable (Firestore/mock) thread, oldest→newest. The rendered [items] merge
+  /// this with the push-carried overlay ([HarnessChatInbox]) so an orchestrator reply
+  /// shows the instant its FCM push arrives, before the stream/poll catches up.
   List<ChatItem> _items = const <ChatItem>[];
   bool _loaded = false;
   Object? _loadError;
   String? _lastSig;
   String? _lastNewestId;
   bool _hasUnreadBelow = false;
+  bool _inboxAttached = false;
 
-  List<ChatItem> get items => _items;
+  /// The rendered thread = durable items + any push-carried overlay entry not yet in the
+  /// durable set, sorted oldest→newest. Dedupe is by doc id (the carried message and its
+  /// eventual Firestore doc share the id), so a reply never double-renders.
+  List<ChatItem> get items {
+    final overlay = HarnessChatInbox.instance.messages;
+    if (overlay.isEmpty) return _items;
+    final durableIds = _items.map((i) => i.id).toSet();
+    final merged = <ChatItem>[
+      ..._items,
+      ...overlay.where((m) => !durableIds.contains(m.id)),
+    ]..sort((a, b) => a.createdAtMs.compareTo(b.createdAtMs));
+    return merged;
+  }
+
   bool get loaded => _loaded;
   Object? get loadError => _loadError;
   bool get hasUnreadBelow => _hasUnreadBelow;
@@ -55,9 +73,14 @@ class ChatMessageController {
     }
   }
 
-  /// Attach to [uid]: open the live listener + start the foreground poll.
+  /// Attach to [uid]: open the live listener + start the foreground poll, and subscribe
+  /// to the push-carried overlay so an FCM-delivered reply renders instantly.
   /// Idempotent per-uid so `build` can call it freely.
   void attach(String uid) {
+    if (!_inboxAttached) {
+      HarnessChatInbox.instance.addListener(_onInboxChanged);
+      _inboxAttached = true;
+    }
     if (_uid == uid && _sub != null) {
       _pollTimer ??= _startPoll(uid);
       return;
@@ -66,6 +89,10 @@ class ChatMessageController {
     _pollTimer = _startPoll(uid);
     pollOnce(uid);
   }
+
+  /// The push overlay changed (an FCM-carried reply arrived) — re-render the merged
+  /// thread, applying the same new-message scroll/unread rules as a durable update.
+  void _onInboxChanged() => _apply();
 
   void _subscribe(String uid) {
     _sub?.cancel();
@@ -122,13 +149,27 @@ class ChatMessageController {
     }());
   }
 
+  /// A durable (stream/poll) emission landed — adopt it, drop any overlay entry it now
+  /// carries (dedupe), then re-render the merged thread.
   void _onItems(List<ChatItem> items) {
-    final sig = _sigOf(items);
-    final firstLoad = !_loaded;
+    _items = items;
+    _apply();
+    // Memory hygiene: an overlay entry the durable stream now carries is redundant.
+    HarnessChatInbox.instance.prune(items.map((i) => i.id));
+  }
+
+  /// Recompute the rendered (merged durable + overlay) thread and apply the new-message
+  /// scroll/unread rules. Funnelled by both the durable stream and the push overlay so
+  /// an FCM-carried reply and its eventual Firestore doc behave identically (deduped by
+  /// id, so no double bubble / double scroll).
+  void _apply() {
+    final merged = items;
+    final sig = _sigOf(merged);
+    final firstLoad = _lastSig == null;
     // A passive re-emission of the same set must be invisible (no flicker/yank).
     if (!firstLoad && sig == _lastSig) return;
 
-    final newest = items.isNotEmpty ? items.last : null;
+    final newest = merged.isNotEmpty ? merged.last : null;
     final newestId = newest?.id ?? '-';
     final newestRole = newest?.role ?? '-';
 
@@ -138,14 +179,13 @@ class ChatMessageController {
     final isOwnSend = newestRole == 'brandon';
 
     if (firstLoad) {
-      harnessLog.chat('receive: loaded ${items.length} msgs');
+      harnessLog.chat('receive: loaded ${merged.length} msgs');
     } else if (isNewMessage) {
       harnessLog.chat('receive: new msg from $newestRole');
     }
 
     _lastSig = sig;
     _lastNewestId = newestId;
-    _items = items;
     _loaded = true;
     _loadError = null;
     notify();
@@ -163,6 +203,10 @@ class ChatMessageController {
       '${items.length}:${items.map((i) => i.id).join(',')}';
 
   void dispose() {
+    if (_inboxAttached) {
+      HarnessChatInbox.instance.removeListener(_onInboxChanged);
+      _inboxAttached = false;
+    }
     _sub?.cancel();
     stopPoll();
   }

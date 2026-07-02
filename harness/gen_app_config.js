@@ -47,6 +47,10 @@ function buildDart() {
     ['pushTitle', 'push.title'],
     ['pushAndroidChannelId', 'push.androidChannelId'],
     ['pushDataRoute', 'push.dataRoute'],
+    // Where the app STORES the FCM device token (and the orchestrator reads it) —
+    // config-driven so the token location is never hardcoded in the app.
+    ['pushTokenCollection', 'push.tokenCollection'],
+    ['pushTokenField', 'push.tokenField'],
     // In-app honesty signals (mode banner + poke/send). orchestratorBridge declares
     // whether a real operator loop reads this project; backendLabel is a generic
     // human label for the connected backend (interpolated — no hardcoded app noun).

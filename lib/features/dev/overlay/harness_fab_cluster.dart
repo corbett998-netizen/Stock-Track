@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../dev_gate.dart';
+import '../push/harness_push_service.dart';
 import '../services/harness_providers.dart';
 import 'harness_tool_button.dart';
 import 'harness_tools.dart';
@@ -61,6 +62,11 @@ class _HarnessFabClusterState extends ConsumerState<HarnessFabCluster> {
 
   /// Anchor captured at long-press start, so a long-press-drag is relative.
   Offset _dragAnchor = Offset.zero;
+
+  /// The uid we've registered for push against (once per distinct uid). Push is harness
+  /// infra, so registration lives here — the cluster is dev-gated and already resolves
+  /// the owner uid; the wiring/handlers were set up in main() via [HarnessPushService].
+  String? _pushRegisteredUid;
 
   @override
   void initState() {
@@ -148,6 +154,16 @@ class _HarnessFabClusterState extends ConsumerState<HarnessFabCluster> {
     // it are disabled and badge-less until it lands (BP's `uid == null` guard).
     final uid = ref.watch(ownerUidProvider).valueOrNull;
     final rootCtx = widget.navigatorKey?.currentContext ?? context;
+
+    // Register this uid for push once it resolves (firebase mode only — mock has no
+    // backend). Guarded to fire once per distinct uid; registerForUser is fully wrapped
+    // and never throws, so it can't disturb the cluster build.
+    if (uid != null &&
+        uid != _pushRegisteredUid &&
+        kHarnessMode == HarnessMode.firebase) {
+      _pushRegisteredUid = uid;
+      HarnessPushService.instance.registerForUser(uid);
+    }
 
     return Positioned(
       left: pos.dx,
