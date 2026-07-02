@@ -10,7 +10,7 @@ const bool kHarnessEnabled = true;
 /// The owner's Firebase Auth UID — the harness FAB cluster only renders for this
 /// uid (see [HarnessFabCluster]), so enabling the harness in a release build does
 /// not surface it to every installer, only to this one signed-in identity.
-const String kOwnerUid = 'L7TFQ17wUOcjUZzlQortVza1iFe2';
+const String kOwnerUid = 'dAANsSNnCDdRwPacNyqpex2lPiU2';
 
 /// The data-source mode for the harness — the ONE switch (mirrors Stock-Track's
 /// inventory Mock↔Firebase seam). `firebase` persists to easy-stock-track (the
