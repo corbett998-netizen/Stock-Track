@@ -50,9 +50,12 @@ abstract interface class ChatRepository {
   /// header signal. Read-only in-app; the operator side writes it.
   Future<Map<String, dynamic>?> readAgentStatus();
 
-  /// Patch message [msgId]'s `tags[]` to exactly [tags] (HI-11). Covered by the
-  /// existing owner-write rule — NO firestore.rules change. Also bumps the poke so a
-  /// live operator would wake + route off the new tag (inert while the bridge is off).
+  /// Patch message [msgId]'s `tags[]` to exactly [tags] (HI-11). This is a document
+  /// UPDATE, which the message-doc rule denies by default (append-only); it is allowed
+  /// ONLY by the narrow tags-only update clause in firestore.rules
+  /// (`affectedKeys().hasOnly(['tags'])`). That rule allowance MUST stay deployed or this
+  /// write returns PERMISSION_DENIED. Also bumps the poke so a live operator would wake +
+  /// route off the new tag (inert while the bridge is off).
   ///
   /// ⚠ PORTABILITY LANDMINE: `addedAt` is written as a CONCRETE client timestamp — a
   /// Firestore `serverTimestamp()` is illegal inside an array element. See
@@ -185,7 +188,9 @@ class FirebaseChatRepository implements ChatRepository {
               : Timestamp.now(),
         },
     ];
-    // merge-write (covered by the existing owner isOwner rule — no rules change).
+    // merge-write of ONLY the `tags` field. This is a doc UPDATE; it is permitted by the
+    // tags-only update clause in firestore.rules (affectedKeys().hasOnly(['tags'])) — never
+    // touch any other field here or the write will be PERMISSION_DENIED.
     await _messages(uid).doc(msgId).set(<String, dynamic>{
       'tags': payload,
     }, SetOptions(merge: true));

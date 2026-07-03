@@ -24,8 +24,14 @@ service cloud.firestore {
     // The owner reads + writes ONLY their own thread (thread id == their uid).
     match /orchestratorChat/{uid}/messages/{msg} {
       allow read, create: if signedIn() && request.auth.uid == uid;
-      // Messages are append-only from the client; no client update/delete.
-      allow update, delete: if false;
+      // Message CONTENT is append-only from the client. The one permitted client
+      // update is the tagging feature's merge-write: the owner may patch their own
+      // message ONLY when the update touches the `tags` field and nothing else
+      // (FirebaseChatRepository.writeTags does a set({'tags': ...}, merge:true)).
+      // affectedKeys().hasOnly(['tags']) keeps text/content immutable; delete stays denied.
+      allow update: if signedIn() && request.auth.uid == uid
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['tags']);
+      allow delete: if false;
     }
     // The owner may read + write their OWN thread doc — this is where the app stores its
     // FCM device token (push.tokenCollection == orchestratorChat, field `fcmToken`) so
