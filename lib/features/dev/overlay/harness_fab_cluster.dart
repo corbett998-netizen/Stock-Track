@@ -68,6 +68,11 @@ class _HarnessFabClusterState extends ConsumerState<HarnessFabCluster> {
   /// the owner uid; the wiring/handlers were set up in main() via [HarnessPushService].
   String? _pushRegisteredUid;
 
+  /// Collapsed/expanded toggle — collapsed shows only the drag-handle tab; expanded
+  /// shows the full tool column below it. Double-tap the grip to toggle. Not
+  /// persisted (unlike position): every fresh mount starts expanded.
+  bool _expanded = true;
+
   @override
   void initState() {
     super.initState();
@@ -79,6 +84,10 @@ class _HarnessFabClusterState extends ConsumerState<HarnessFabCluster> {
       _gripHeight +
       kHarnessTools.length * _buttonSize +
       kHarnessTools.length * _gap;
+
+  /// The on-screen footprint used to clamp the cluster's position — just the grip
+  /// tab while collapsed, so it can sit anywhere the full cluster couldn't.
+  double get _visibleHeight => _expanded ? _clusterHeight : _gripHeight;
 
   Future<void> _restorePosition() async {
     try {
@@ -128,7 +137,7 @@ class _HarnessFabClusterState extends ConsumerState<HarnessFabCluster> {
         (size.height -
                 media.padding.bottom -
                 _bottomClearance -
-                _clusterHeight)
+                _visibleHeight)
             .clamp(minY, double.infinity);
 
     Offset base;
@@ -184,19 +193,21 @@ class _HarnessFabClusterState extends ConsumerState<HarnessFabCluster> {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             _grip(pos, applyDelta, persist),
-            for (final spec in kHarnessTools) ...[
-              const SizedBox(height: _gap),
-              // A stateful in-place tool (e.g. the floating mic) renders its own
-              // constant-footprint widget; every other tool is a tap-to-launch FAB.
-              if (spec.builder != null)
-                SizedBox(
-                  width: _buttonSize,
-                  height: _buttonSize,
-                  child: spec.builder!(),
-                )
-              else
-                HarnessToolButton(spec: spec, rootContext: rootCtx, uid: uid),
-            ],
+            // Collapsed: only the grip tab renders — no tool buttons, no gaps.
+            if (_expanded)
+              for (final spec in kHarnessTools) ...[
+                const SizedBox(height: _gap),
+                // A stateful in-place tool (e.g. the floating mic) renders its own
+                // constant-footprint widget; every other tool is a tap-to-launch FAB.
+                if (spec.builder != null)
+                  SizedBox(
+                    width: _buttonSize,
+                    height: _buttonSize,
+                    child: spec.builder!(),
+                  )
+                else
+                  HarnessToolButton(spec: spec, rootContext: rootCtx, uid: uid),
+              ],
           ],
         ),
       ),
@@ -210,8 +221,10 @@ class _HarnessFabClusterState extends ConsumerState<HarnessFabCluster> {
       behavior: HitTestBehavior.opaque,
       onPanUpdate: (d) => applyDelta((_pos ?? pos) + d.delta),
       onPanEnd: (_) => persist(),
+      onDoubleTap: () => setState(() => _expanded = !_expanded),
       child: Semantics(
         label: 'Move dev tools',
+        hint: 'Double tap to expand or collapse',
         child: Container(
           width: 44,
           height: _gripHeight,

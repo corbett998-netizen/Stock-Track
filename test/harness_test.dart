@@ -344,15 +344,17 @@ void main() {
 
   group('Attachments — Storage-gated (Chunk 5)', () {
     test(
-      'ChatUploadService returns the LOCAL path when Storage is off',
+      'ChatUploadService falls back to the LOCAL path when an upload attempt fails',
       () async {
-        // Storage is deliberately off for the first proof.
-        expect(kHarnessStorageEnabled, isFalse);
+        // Storage is enabled; resolve() attempts an upload and, with no Firebase
+        // app initialized (and no real file at this path) in the test environment,
+        // degrades to the local path via its catch-fallback rather than throwing.
+        expect(kHarnessStorageEnabled, isTrue);
         final source = await ChatUploadService.resolve(
           XFile('/tmp/shot.png'),
           uid: 'u',
         );
-        expect(source, '/tmp/shot.png'); // no upload attempted
+        expect(source, '/tmp/shot.png');
       },
     );
 
