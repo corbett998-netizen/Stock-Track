@@ -20,6 +20,7 @@
     "isFlutter": true
   },
   "firebase": {
+    "_comment": "serviceAccountPath is a PATH REFERENCE only — NO key file is ever read at runtime. The orchestrator authenticates via ADC (gcloud application-default), never a committed key; service-account*.json is gitignored. The field only satisfies the schema and documents where a key WOULD live if one were ever used — it is intentionally inert in the no-key story.",
     "projectId": "easy-stock-track",
     "storageBucket": "easy-stock-track.firebasestorage.app",
     "serviceAccountPath": "${paths.repoRoot}/service-account.json",

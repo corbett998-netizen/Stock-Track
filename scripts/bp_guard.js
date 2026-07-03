@@ -10,6 +10,16 @@
  *
  * The guard makes cross-writing Blueprint structurally impossible: if any BP literal
  * is reachable from the resolved Stock-Track config, the orchestrator refuses to run.
+ *
+ * TWO complementary mechanisms (net protection is a strict SUPERSET of the old blocklist):
+ *   1. CONFIG-DRIVEN foreign-identity detection (findForeignFirebaseIdentity) — flags any
+ *      Firebase/GCP project bucket/domain whose slug is NOT the allowed project. This
+ *      generalizes to ANY foreign project (not just Blueprint) with no edits.
+ *   2. REFERENCE-LITERAL blocklist (findBpLeak / BP_FORBIDDEN, retained) — the known
+ *      reference literals (bare owner UIDs, repo paths, package prefix) an allowlist cannot
+ *      safely shape-detect. Kept as a backstop so the guard is never WEAKER than before.
+ * EXPECTED_PROJECT_ID is an INDEPENDENT literal pin (deliberately NOT read from config) so a
+ * tampered config can never re-point the guard at another project.
  */
 'use strict';
 
@@ -35,6 +45,33 @@ function findBpLeak(values) {
   return null;
 }
 
+// The project this orchestrator IS pinned to. An INDEPENDENT literal backstop (deliberately
+// NOT read from config, so a tampered config can never re-point the guard). The static gate
+// harness/harness_antileak_scan.sh derives the allowed identity FROM config; this runtime pin
+// is the belt-and-suspenders that config self-attestation cannot provide.
+const EXPECTED_PROJECT_ID = 'easy-stock-track';
+
+// Firebase/GCP project-scoped identity domain shape. A bucket/domain whose slug differs from
+// the allowed project id is a FOREIGN backend. (App-ID shape detection lives in the static
+// file scanner, where — unlike resolved config values — no legitimate own App-ID appears.)
+const FIREBASE_IDENTITY_RX = /\b([a-z0-9][a-z0-9-]{2,})\.(?:firebasestorage\.app|appspot\.com|firebaseio\.com|firebaseapp\.com|web\.app)\b/i;
+
+/**
+ * PURE: the first FOREIGN Firebase/GCP identity token in `values` — a project bucket/domain
+ * whose slug != `allowedProjectId` — else null. Config-driven (the allowed id comes from
+ * config), so it generalizes to ANY foreign project, not a fixed reference blocklist.
+ * Complements findBpLeak, which stays as the known-literal backstop.
+ */
+function findForeignFirebaseIdentity(values, allowedProjectId) {
+  const allowed = String(allowedProjectId == null ? '' : allowedProjectId).toLowerCase();
+  for (const v of values) {
+    const s = String(v == null ? '' : v);
+    const dom = s.match(FIREBASE_IDENTITY_RX);
+    if (dom && dom[1].toLowerCase() !== allowed) return dom[0];
+  }
+  return null;
+}
+
 /**
  * Abort (process.exit) if any BP literal is reachable from `values`, or if the
  * project isn't pinned to easy-stock-track. `log` defaults to console.error.
@@ -45,8 +82,13 @@ function assertStockTrackOnly(values, projectId, exit = process.exit, log = cons
     log(`STOCKTRACK-CHAT RESULT: BLOCKED | Blueprint literal '${leak}' reachable from config | class=bp-leak retryable=no`);
     return exit(3);
   }
-  if (projectId !== 'easy-stock-track') {
-    log(`STOCKTRACK-CHAT RESULT: BLOCKED | firebase.projectId='${projectId}' is not 'easy-stock-track' | class=wrong-project retryable=no`);
+  const foreign = findForeignFirebaseIdentity(values, EXPECTED_PROJECT_ID);
+  if (foreign) {
+    log(`STOCKTRACK-CHAT RESULT: BLOCKED | foreign Firebase identity '${foreign}' reachable from config (allowed project '${EXPECTED_PROJECT_ID}') | class=foreign-identity retryable=no`);
+    return exit(3);
+  }
+  if (projectId !== EXPECTED_PROJECT_ID) {
+    log(`STOCKTRACK-CHAT RESULT: BLOCKED | firebase.projectId='${projectId}' is not '${EXPECTED_PROJECT_ID}' | class=wrong-project retryable=no`);
     return exit(3);
   }
   return true;
@@ -63,6 +105,15 @@ function runGuardSelfTest() {
   eq('catches BP package prefix', findBpLeak(['io.bcd.blueprint']), 'io.bcd');
   eq('catches BP repo root', findBpLeak(['/mnt/c/dev/blueprint-fitness-app/x']), 'blueprint-fitness-app');
   eq('passes clean Stock-Track values', findBpLeak(['easy-stock-track', 'orchestratorChat', 'stockIssueReports', 'brandon']), null);
+  // config-driven FOREIGN-identity detection — generalizes beyond the fixed blocklist
+  eq('foreign: catches a non-reference foreign bucket',
+    findForeignFirebaseIdentity(['acme-widgets-prod.firebasestorage.app'], EXPECTED_PROJECT_ID), 'acme-widgets-prod.firebasestorage.app');
+  eq('foreign: catches a foreign appspot bucket',
+    findForeignFirebaseIdentity(['some-other-proj.appspot.com'], EXPECTED_PROJECT_ID), 'some-other-proj.appspot.com');
+  eq('foreign: allows THIS project bucket',
+    findForeignFirebaseIdentity(['easy-stock-track.firebasestorage.app', 'orchestratorChat'], EXPECTED_PROJECT_ID), null);
+  eq('foreign: allows clean non-domain values',
+    findForeignFirebaseIdentity(['easy-stock-track', 'stockIssueReports', 'brandon'], EXPECTED_PROJECT_ID), null);
   let failed = 0;
   for (const c of cases) {
     if (!c.ok) failed++;
@@ -71,7 +122,7 @@ function runGuardSelfTest() {
   return failed;
 }
 
-module.exports = { BP_FORBIDDEN, findBpLeak, assertStockTrackOnly, runGuardSelfTest };
+module.exports = { BP_FORBIDDEN, EXPECTED_PROJECT_ID, findBpLeak, findForeignFirebaseIdentity, assertStockTrackOnly, runGuardSelfTest };
 
 if (require.main === module) {
   const failed = runGuardSelfTest();
