@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../../../../core/utils/harness_logger.dart';
 import '../../push/harness_chat_inbox.dart';
 import '../models/chat_item.dart';
+import '../models/workflow_tag.dart';
 import '../services/chat_repository.dart';
 
 /// The live-message engine for the owner↔orchestrator chat. Ported from
@@ -65,6 +66,20 @@ class ChatMessageController {
   bool get loaded => _loaded;
   Object? get loadError => _loadError;
   bool get hasUnreadBelow => _hasUnreadBelow;
+
+  /// True when [id] is a REAL durable message (in the Firestore/mock set), not a
+  /// push-overlay-only id — the guard for tag writes (patching an overlay-only id would
+  /// create a junk doc with tags but no role/text). HI-11.
+  bool hasDurableDoc(String id) => _items.any((i) => i.id == id);
+
+  /// The current structured tags on [id] (read from the rendered set). Empty for an
+  /// untagged or unknown message. Feeds the tag picker's checked-state. HI-11.
+  List<WorkflowTag> tagsOf(String id) {
+    for (final i in items) {
+      if (i.id == id) return i.tags;
+    }
+    return const <WorkflowTag>[];
+  }
 
   void clearUnread() {
     if (_hasUnreadBelow) {
@@ -199,8 +214,26 @@ class ChatMessageController {
     }
   }
 
-  String _sigOf(List<ChatItem> items) =>
-      '${items.length}:${items.map((i) => i.id).join(',')}';
+  /// Content signature = count + ordered ids + a per-message TAG fingerprint. Ids alone
+  /// miss an IN-PLACE `tags[]` edit (the doc id is unchanged), so a freshly applied chip
+  /// would never surface until a NEW message arrived. Folding the tag fingerprint makes a
+  /// tag add/remove flip the signature → exactly one targeted rebuild (no new id ⇒ no
+  /// autoscroll/yank). HI-11.
+  String _sigOf(List<ChatItem> items) {
+    final b = StringBuffer()..write(items.length);
+    for (final i in items) {
+      b
+        ..write('|')
+        ..write(i.id);
+      final fp = i.tagFingerprint;
+      if (fp.isNotEmpty) {
+        b
+          ..write('#')
+          ..write(fp);
+      }
+    }
+    return b.toString();
+  }
 
   void dispose() {
     if (_inboxAttached) {

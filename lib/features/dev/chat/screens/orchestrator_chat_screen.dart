@@ -9,8 +9,12 @@ import '../../harness_theme.dart';
 import '../../services/harness_providers.dart';
 import '../controllers/chat_compose_controller.dart';
 import '../controllers/chat_message_controller.dart';
+import '../controllers/chat_tagging_controller.dart';
 import '../models/chat_item.dart';
+import '../models/workflow_tag.dart';
 import '../services/chat_export.dart';
+import '../services/chat_tag_store.dart';
+import '../tagging/tag_picker_sheet.dart';
 import '../widgets/chat_bubble.dart';
 import '../widgets/chat_composer.dart';
 import '../widgets/chat_header.dart';
@@ -36,6 +40,8 @@ class _OrchestratorChatScreenState extends ConsumerState<OrchestratorChatScreen>
     with WidgetsBindingObserver {
   late final ChatMessageController _messages;
   late final ChatComposeController _compose;
+  late final ChatTaggingController _tagging;
+  final ChatTagStore _tagStore = ChatTagStore();
   final ScrollController _scroll = ScrollController();
   final TextEditingController _input = TextEditingController();
   final FocusNode _focus = FocusNode();
@@ -64,9 +70,41 @@ class _OrchestratorChatScreenState extends ConsumerState<OrchestratorChatScreen>
       snack: _snack,
       autoScroll: _autoScroll,
     );
+    _tagging = ChatTaggingController(
+      repository: ref.read(chatRepositoryProvider),
+      uid: widget.uid,
+      currentTagsOf: _messages.tagsOf,
+      hasDurableDoc: _messages.hasDurableDoc,
+      pollOnce: () => _messages.pollOnce(widget.uid),
+      snack: _snack,
+    );
     _messages.attach(widget.uid);
     _loadExportCursor();
+    // Warm the device-side tag registry (owner labels + colours) so the picker shows his
+    // reusable labels; a re-render surfaces them once loaded. Non-fatal.
+    _tagStore.load().then((_) {
+      if (mounted) setState(() {});
+    });
   }
+
+  /// Open the tag/label picker for the current multi-selection (HI-11).
+  void _openTagPicker() {
+    final ids = _orderedSelection.map((m) => m.id).toList();
+    if (ids.isEmpty) return;
+    showTagPickerSheet(
+      context,
+      selectedIds: ids,
+      accent: HarnessTheme.accent,
+      store: _tagStore,
+      tagging: _tagging,
+      onChanged: _safeNotify,
+    );
+  }
+
+  /// Whether the Tag/Label affordance surfaces at all — true when EITHER tagging
+  /// dimension is enabled by config (labels on by default; workflow gated on lanes>1).
+  static final bool _taggingEnabled =
+      HarnessConfig.taggingLabelsEnabled || HarnessConfig.taggingWorkflowEnabled;
 
   Future<void> _loadExportCursor() async {
     try {
@@ -234,6 +272,7 @@ class _OrchestratorChatScreenState extends ConsumerState<OrchestratorChatScreen>
               count: _selected.length,
               onCopy: _copySelected,
               onClear: _clearSelect,
+              onTag: _taggingEnabled ? _openTagPicker : null,
               background: HarnessTheme.panel,
               accent: HarnessTheme.accent,
             )
@@ -315,6 +354,10 @@ class _OrchestratorChatScreenState extends ConsumerState<OrchestratorChatScreen>
       itemCount: items.length,
       itemBuilder: (context, i) {
         final it = items[i];
+        // Resolve this message's tags → chip defs (HI-11). The internal-workflow group
+        // is suppressed unless that dimension is enabled (gated on lanes>1) so it stays
+        // truly inert on this single-lane port.
+        final resolved = _tagStore.resolveTags(it.tags);
         return ChatBubble(
           // Bind the bubble's (transient) copied-confirm state to the message id so
           // it follows the correct message when the list grows/reorders.
@@ -325,6 +368,10 @@ class _OrchestratorChatScreenState extends ConsumerState<OrchestratorChatScreen>
           imageUrl: it.imageUrl,
           selectionMode: _selecting,
           selected: _selected.contains(it.id),
+          chatgptDefs: resolved.chatgpt,
+          workflowDefs: HarnessConfig.taggingWorkflowEnabled
+              ? resolved.workflow
+              : const <WorkflowDef>[],
           onCopy: () => _copyOne(it),
           onLongPress: () => _toggleSelect(it.id),
           onTap: _selecting ? () => _toggleSelect(it.id) : null,

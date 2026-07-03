@@ -43,4 +43,15 @@ class HarnessConfig {
   static const String orchestratorBridge = 'off';
   /// project.config.json: harness.backendLabel
   static const String backendLabel = 'easy-stock-track';
+
+  /// Number of declared work-lanes (project.config.json: lanes.names.length).
+  static const int lanesCount = 1;
+  /// Tagging dimension (b) — the generic free-form conversation LABEL. On by default.
+  static const bool taggingLabelsEnabled = true;
+  /// Tagging dimension (a) — internal work-lane ROUTING. GATED on lanes.count > 1,
+  /// so it is INERT on a single-lane port (structure ships, UI does not surface).
+  static const bool taggingWorkflowEnabled = false;
+  /// The app's OWN lane set (project.config.json: lanes.names) as a JSON array —
+  /// the config-driven source for dimension (a); NEVER the reference app's lanes.
+  static const String laneNamesJson = '["stocktrack-harness"]';
 }

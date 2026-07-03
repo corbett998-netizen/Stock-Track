@@ -69,5 +69,13 @@
   "lanes": {
     "names": ["stocktrack-harness"]
   },
+  "tagging": {
+    "_comment": "HI-11 chat message-tagging (see docs/harness/TAGGING_REVIEW.md). TWO dimensions. conversationLabels = the generic free-form 'which external-LLM conversation is this for' LABEL — 100% generic, zero taxonomy, ACTIVE by default. workflowLanes = the internal work-lane ROUTING dimension; its lane SET is THIS app's own lanes (see the top-level `lanes.names`, NEVER the reference app's), and it is STRUCTURALLY GATED on lanes.count > 1 (the generator derives HarnessConfig.taggingWorkflowEnabled = lanes.names.length > 1). This port declares ONE lane, so the routing dimension is INERT: the structure ships, the UI does not surface. keywords/stopwords are OPERATOR-side classifier inputs (the operator bridge is 'off' here) — present for a future multi-lane app, unused by the app.",
+    "conversationLabels": { "enabled": true },
+    "workflowLanes": {
+      "lanes": [],
+      "stopwords": ["the", "and", "for", "with", "this", "that"]
+    }
+  },
   "fileSizeGuard": { "warn": 500, "justify": 800, "hardStop": 1200, "enforce": "advisory" }
 }

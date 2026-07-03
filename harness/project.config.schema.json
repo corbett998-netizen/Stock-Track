@@ -119,6 +119,22 @@
         "names": { "type": "array", "items": { "type": "string" } }
       }
     },
+    "tagging": {
+      "type": "object",
+      "properties": {
+        "conversationLabels": {
+          "type": "object",
+          "properties": { "enabled": { "type": "boolean" } }
+        },
+        "workflowLanes": {
+          "type": "object",
+          "properties": {
+            "lanes": { "type": "array" },
+            "stopwords": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      }
+    },
     "registers": { "type": "object" },
     "backup": { "type": "object" },
     "fileSizeGuard": {

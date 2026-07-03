@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../models/workflow_tag.dart';
+
 /// One chat bubble — owner (right, accent) vs orchestrator (left, surface). Chunk 4
 /// adds per-bubble copy + multi-select; Chunk 5 adds an inline image attachment
 /// (tap to zoom). Chunk 6 adds the copy VISUAL CONFIRM: once copied, the bubble
@@ -29,6 +31,8 @@ class ChatBubble extends StatefulWidget {
     this.onLongPress,
     this.selected = false,
     this.selectionMode = false,
+    this.chatgptDefs = const <WorkflowDef>[],
+    this.workflowDefs = const <WorkflowDef>[],
   });
 
   final String text;
@@ -37,6 +41,15 @@ class ChatBubble extends StatefulWidget {
 
   /// An attached image — a Storage URL or a local file path. Null = text-only.
   final String? imageUrl;
+
+  /// Resolved conversation-LABEL chips (HI-11 dimension b) — the PRIMARY, full-strength
+  /// row; the first one's colour drives the left stripe. Empty = no chips (byte-identical
+  /// to the pre-tagging bubble).
+  final List<WorkflowDef> chatgptDefs;
+
+  /// Resolved internal-WORKFLOW chips (HI-11 dimension a) — the SECONDARY, de-emphasised
+  /// row. Empty on a single-lane port (the dimension is gated off upstream).
+  final List<WorkflowDef> workflowDefs;
 
   /// Copy just this bubble (per-bubble copy icon). Hidden in selection mode. This
   /// widget calls it, then shows its own gray-out + "copied" confirm.
@@ -94,29 +107,23 @@ class _ChatBubbleState extends State<ChatBubble> {
     final baseColor = isOwner
         ? accent.withValues(alpha: 0.22)
         : Colors.white.withValues(alpha: 0.06);
-    final bubble = Container(
-      constraints: BoxConstraints(
-        maxWidth: MediaQuery.of(context).size.width * 0.78,
-      ),
-      margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 10),
+    final radius = BorderRadius.only(
+      topLeft: const Radius.circular(16),
+      topRight: const Radius.circular(16),
+      bottomLeft: Radius.circular(isOwner ? 16 : 4),
+      bottomRight: Radius.circular(isOwner ? 4 : 16),
+    );
+    final hasTags = widget.chatgptDefs.isNotEmpty || widget.workflowDefs.isNotEmpty;
+    // The primary conversation label's colour drives the left stripe; else the first
+    // workflow chip; else no stripe (untagged = unchanged bubble).
+    final Color? stripeColor = widget.chatgptDefs.isNotEmpty
+        ? widget.chatgptDefs.first.color
+        : (widget.workflowDefs.isNotEmpty
+              ? widget.workflowDefs.first.color
+              : null);
+
+    final content = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: widget.selected ? accent.withValues(alpha: 0.32) : baseColor,
-        borderRadius: BorderRadius.only(
-          topLeft: const Radius.circular(16),
-          topRight: const Radius.circular(16),
-          bottomLeft: Radius.circular(isOwner ? 16 : 4),
-          bottomRight: Radius.circular(isOwner ? 4 : 16),
-        ),
-        border: Border.all(
-          color: widget.selected
-              ? accent
-              : (isOwner
-                    ? accent.withValues(alpha: 0.5)
-                    : Colors.white.withValues(alpha: 0.08)),
-          width: widget.selected ? 1.5 : 1,
-        ),
-      ),
       child: Column(
         crossAxisAlignment: isOwner
             ? CrossAxisAlignment.end
@@ -167,6 +174,18 @@ class _ChatBubbleState extends State<ChatBubble> {
               ],
             ],
           ),
+          // Tag chips (HI-11): conversation label FIRST at full strength, internal
+          // workflow SECOND + de-emphasised. Each group caps at +N so a heavily-tagged
+          // bubble can't crowd the text.
+          if (hasTags) ...[
+            const SizedBox(height: 5),
+            if (widget.chatgptDefs.isNotEmpty)
+              _TagChipRow(defs: widget.chatgptDefs),
+            if (widget.chatgptDefs.isNotEmpty && widget.workflowDefs.isNotEmpty)
+              const SizedBox(height: 4),
+            if (widget.workflowDefs.isNotEmpty)
+              _TagChipRow(defs: widget.workflowDefs, secondary: true),
+          ],
           if ((widget.imageUrl ?? '').isNotEmpty) ...[
             const SizedBox(height: 6),
             _image(context, widget.imageUrl!),
@@ -183,6 +202,39 @@ class _ChatBubbleState extends State<ChatBubble> {
             ),
           ],
         ],
+      ),
+    );
+
+    final bubble = Container(
+      constraints: BoxConstraints(
+        maxWidth: MediaQuery.of(context).size.width * 0.78,
+      ),
+      margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 10),
+      decoration: BoxDecoration(
+        color: widget.selected ? accent.withValues(alpha: 0.32) : baseColor,
+        borderRadius: radius,
+        border: Border.all(
+          color: widget.selected
+              ? accent
+              : (isOwner
+                    ? accent.withValues(alpha: 0.5)
+                    : Colors.white.withValues(alpha: 0.08)),
+          width: widget.selected ? 1.5 : 1,
+        ),
+      ),
+      child: ClipRRect(
+        borderRadius: radius,
+        child: IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Left-edge stream stripe (only when tagged).
+              if (stripeColor != null) Container(width: 4, color: stripeColor),
+              Flexible(child: content),
+            ],
+          ),
+        ),
       ),
     );
 
@@ -269,6 +321,71 @@ class _ChatBubbleState extends State<ChatBubble> {
     color: Colors.white.withValues(alpha: 0.06),
     child: const Icon(Icons.broken_image_outlined, color: Colors.white38),
   );
+}
+
+/// A row of resolved tag chips (HI-11). [secondary] renders de-emphasised (dimmer,
+/// smaller) — used for the internal-workflow group so it never dominates the primary
+/// conversation label. Visible chips cap at [_maxVisible] with a `+N` overflow chip so a
+/// heavily-tagged bubble can't crowd the text.
+class _TagChipRow extends StatelessWidget {
+  const _TagChipRow({required this.defs, this.secondary = false});
+
+  final List<WorkflowDef> defs;
+  final bool secondary;
+
+  static const int _maxVisible = 2;
+
+  @override
+  Widget build(BuildContext context) {
+    final visible = defs.length > _maxVisible
+        ? defs.sublist(0, _maxVisible)
+        : defs;
+    final overflow = defs.length - visible.length;
+    return Wrap(
+      spacing: 4,
+      runSpacing: 4,
+      children: [
+        for (final w in visible)
+          _TagChip(label: w.label, color: w.color, secondary: secondary),
+        if (overflow > 0)
+          _TagChip(label: '+$overflow', color: Colors.white54, secondary: secondary),
+      ],
+    );
+  }
+}
+
+/// One coloured tag chip.
+class _TagChip extends StatelessWidget {
+  const _TagChip({required this.label, required this.color, this.secondary = false});
+
+  final String label;
+  final Color? color;
+  final bool secondary;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = color ?? Colors.white24;
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: secondary ? 6 : 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: c.withValues(alpha: secondary ? 0.10 : 0.22),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+          color: secondary ? c.withValues(alpha: 0.45) : c,
+          width: 1,
+        ),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: secondary ? c.withValues(alpha: 0.7) : c,
+          fontSize: secondary ? 9 : 10,
+          fontWeight: secondary ? FontWeight.w600 : FontWeight.w700,
+          letterSpacing: 0.4,
+        ),
+      ),
+    );
+  }
 }
 
 /// Full-screen, pinch-to-zoom view of a chat image (URL or local path).

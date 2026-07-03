@@ -58,6 +58,17 @@ function buildDart() {
     ['backendLabel', 'harness.backendLabel'],
   ];
 
+  // --- HI-11 chat message-tagging — derived config (typed) ---------------------------
+  // The lane SET is THIS app's own lanes (project.config.json `lanes.names`), never the
+  // reference app's. The internal work-lane ROUTING dimension is STRUCTURALLY GATED on
+  // lanes.count > 1 so a single-lane port can't surface a routing dimension that routes
+  // nowhere; the free-form conversation-LABEL dimension is generic and on by default.
+  const laneNames = cfgLib.tryGet('lanes.names', [], cfg);
+  const lanesCount = Array.isArray(laneNames) ? laneNames.length : 0;
+  const labelsEnabled = cfgLib.tryGet('tagging.conversationLabels.enabled', true, cfg) !== false;
+  const workflowEnabled = lanesCount > 1; // the gate — inert at one lane, lights up at >1
+  const laneNamesJson = JSON.stringify(Array.isArray(laneNames) ? laneNames : []);
+
   const lines = [];
   lines.push('// GENERATED FILE — DO NOT EDIT.');
   lines.push('// Source: harness/project.config.json  ·  Generator: harness/gen_app_config.js');
@@ -76,6 +87,18 @@ function buildDart() {
     lines.push(`  /// project.config.json: ${p}`);
     lines.push(`  static const String ${field} = ${dartStr(g(p))};`);
   }
+  // --- HI-11 tagging (derived; typed int/bool + the app's own lane set as JSON) ---
+  lines.push('');
+  lines.push('  /// Number of declared work-lanes (project.config.json: lanes.names.length).');
+  lines.push(`  static const int lanesCount = ${lanesCount};`);
+  lines.push('  /// Tagging dimension (b) — the generic free-form conversation LABEL. On by default.');
+  lines.push(`  static const bool taggingLabelsEnabled = ${labelsEnabled ? 'true' : 'false'};`);
+  lines.push('  /// Tagging dimension (a) — internal work-lane ROUTING. GATED on lanes.count > 1,');
+  lines.push('  /// so it is INERT on a single-lane port (structure ships, UI does not surface).');
+  lines.push(`  static const bool taggingWorkflowEnabled = ${workflowEnabled ? 'true' : 'false'};`);
+  lines.push('  /// The app\'s OWN lane set (project.config.json: lanes.names) as a JSON array —');
+  lines.push('  /// the config-driven source for dimension (a); NEVER the reference app\'s lanes.');
+  lines.push(`  static const String laneNamesJson = ${dartStr(laneNamesJson)};`);
   lines.push('}');
   lines.push('');
   return lines.join('\n');

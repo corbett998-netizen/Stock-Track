@@ -14,6 +14,7 @@ class ChatSelectionBar extends StatelessWidget implements PreferredSizeWidget {
     required this.onClear,
     required this.background,
     required this.accent,
+    this.onTag,
   });
 
   final int count;
@@ -21,6 +22,10 @@ class ChatSelectionBar extends StatelessWidget implements PreferredSizeWidget {
   final VoidCallback onClear;
   final Color background;
   final Color accent;
+
+  /// Open the tag/label picker for the current selection (HI-11). Null → the action is
+  /// hidden (e.g. tagging disabled).
+  final VoidCallback? onTag;
 
   @override
   Size get preferredSize => const Size.fromHeight(kToolbarHeight);
@@ -36,6 +41,12 @@ class ChatSelectionBar extends StatelessWidget implements PreferredSizeWidget {
       ),
       title: Text('$count selected'),
       actions: [
+        if (onTag != null)
+          IconButton(
+            onPressed: count == 0 ? null : onTag,
+            icon: Icon(Icons.label_outline, color: accent),
+            tooltip: 'Tag / Label',
+          ),
         TextButton.icon(
           onPressed: count == 0 ? null : onCopy,
           icon: Icon(Icons.copy, size: 18, color: accent),

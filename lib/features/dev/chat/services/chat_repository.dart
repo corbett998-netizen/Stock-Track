@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../harness/harness_config.g.dart';
 import '../../services/harness_local_store.dart';
 import '../models/chat_item.dart';
+import '../models/workflow_tag.dart';
 
 /// THE data-access seam for the owner↔orchestrator chat — one place that owns the
 /// query shape + the write/poke contract, so the surface can be retargeted (Mock →
@@ -48,6 +49,19 @@ abstract interface class ChatRepository {
   /// Read the `system/agentStatus` doc (or null). Feeds the "N agents engaged"
   /// header signal. Read-only in-app; the operator side writes it.
   Future<Map<String, dynamic>?> readAgentStatus();
+
+  /// Patch message [msgId]'s `tags[]` to exactly [tags] (HI-11). Covered by the
+  /// existing owner-write rule — NO firestore.rules change. Also bumps the poke so a
+  /// live operator would wake + route off the new tag (inert while the bridge is off).
+  ///
+  /// ⚠ PORTABILITY LANDMINE: `addedAt` is written as a CONCRETE client timestamp — a
+  /// Firestore `serverTimestamp()` is illegal inside an array element. See
+  /// [FirebaseChatRepository.writeTags].
+  Future<void> writeTags({
+    required String uid,
+    required String msgId,
+    required List<WorkflowTag> tags,
+  });
 }
 
 /// Firestore-backed chat against Brandon's project (easy-stock-track).
@@ -81,6 +95,7 @@ class FirebaseChatRepository implements ChatRepository {
               (d.data()['createdAt'] as Timestamp?)?.millisecondsSinceEpoch ??
               0,
           imageUrl: d.data()['imageUrl'] as String?,
+          tags: WorkflowTag.listFrom(d.data()['tags']),
         ),
     ];
   }
@@ -146,6 +161,49 @@ class FirebaseChatRepository implements ChatRepository {
     } catch (_) {
       return null;
     }
+  }
+
+  @override
+  Future<void> writeTags({
+    required String uid,
+    required String msgId,
+    required List<WorkflowTag> tags,
+  }) async {
+    // ⚠ PORTABILITY LANDMINE: a Firestore serverTimestamp() CANNOT live inside an array
+    // element — it throws. So each tag's addedAt is a CONCRETE client Timestamp built
+    // from the tag's client-stamped millis (or Timestamp.now() as a floor). NEVER put a
+    // FieldValue.serverTimestamp() inside a tags[] element.
+    final payload = <Map<String, dynamic>>[
+      for (final t in tags)
+        <String, dynamic>{
+          'id': t.id,
+          'kind': t.kind,
+          if (t.label != null && t.label!.isNotEmpty) 'label': t.label,
+          'addedBy': t.addedBy ?? HarnessConfig.ownerRole,
+          'addedAt': t.addedAtMs != null
+              ? Timestamp.fromMillisecondsSinceEpoch(t.addedAtMs!)
+              : Timestamp.now(),
+        },
+    ];
+    // merge-write (covered by the existing owner isOwner rule — no rules change).
+    await _messages(uid).doc(msgId).set(<String, dynamic>{
+      'tags': payload,
+    }, SetOptions(merge: true));
+    // Bump the poke so a live operator wakes + routes off the new tag (inert while the
+    // bridge is off). Fire-and-forget — it can never fail the tag write.
+    final note = tags.isEmpty
+        ? 'chat untagged'
+        : 'chat tagged: ${tags.map((t) => t.id).join(',')}';
+    unawaited(
+      _db
+          .doc(HarnessConfig.pokeDoc)
+          .set(<String, dynamic>{
+            'pokedAt': FieldValue.serverTimestamp(),
+            'note': note,
+            'by': uid,
+          })
+          .catchError((_) {}),
+    );
   }
 }
 
@@ -250,4 +308,19 @@ class MockChatRepository implements ChatRepository {
   Future<Map<String, dynamic>?> readAgentStatus() async => <String, dynamic>{
     'engaged': 1,
   };
+
+  @override
+  Future<void> writeTags({
+    required String uid,
+    required String msgId,
+    required List<WorkflowTag> tags,
+  }) async {
+    final idx = _messages.indexWhere((m) => m.id == msgId);
+    if (idx < 0) return; // guard: never fabricate a doc for an unknown id.
+    final updated = _messages[idx].copyWith(tags: tags);
+    _messages[idx] = updated;
+    // Write through so the tag survives an app restart (mock path).
+    unawaited(_store.put(HarnessStoreKeys.chat, updated.id, updated.toMap()));
+    _controller.add(_snapshot);
+  }
 }
