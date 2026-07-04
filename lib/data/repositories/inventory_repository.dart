@@ -24,6 +24,10 @@ abstract interface class InventoryRepository {
     required String productId,
     required int delta,
   });
+
+  /// Add a brand-new product (e.g. from a not-found scan or the Inventory
+  /// "Add" flow).
+  Future<Product> addProduct(Product product);
 }
 
 /// In-memory mock. Seeded from [kSeedProducts]; backed by a broadcast stream so
@@ -72,5 +76,12 @@ class MockInventoryRepository implements InventoryRepository {
     _products[index] = updated;
     _controller.add(_snapshot);
     return updated;
+  }
+
+  @override
+  Future<Product> addProduct(Product product) async {
+    _products.add(product);
+    _controller.add(_snapshot);
+    return product;
   }
 }

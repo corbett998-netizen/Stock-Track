@@ -8,14 +8,16 @@ import '../../data/models/installation.dart';
 import '../../data/models/product.dart';
 import '../../data/providers/inventory_providers.dart';
 import '../../data/providers/repository_providers.dart';
+import '../inventory/product_detail_screen.dart';
 import 'scan_providers.dart';
 
 /// Scan tab. The camera is STUBBED for slice 1 (no `mobile_scanner` wired) — a
 /// "Simulate scan" button stands in for a live decode, and a manual barcode
-/// field lets you look up any item. The stock-in / scan-out toggle + the
-/// resulting-quantity preview + the confirm write are all REAL and update the
-/// Dashboard / Inventory live. Swapping in a real camera later is additive: it
-/// only needs to feed a decoded barcode into the same lookup.
+/// field lets you look up any item. A known barcode prompts a quick quantity
+/// dialog and writes straight through `adjustQuantity`; an unknown barcode
+/// opens the product-detail screen in "new product" mode with the scanned
+/// code pre-filled. Swapping in a real camera later is additive: it only
+/// needs to feed a decoded barcode into the same lookup.
 class ScanScreen extends ConsumerStatefulWidget {
   const ScanScreen({super.key});
 
@@ -25,62 +27,54 @@ class ScanScreen extends ConsumerStatefulWidget {
 
 class _ScanScreenState extends ConsumerState<ScanScreen> {
   final _barcodeController = TextEditingController();
-  final _installerController = TextEditingController();
-  final _addressController = TextEditingController();
   final _rng = Random();
-
-  Product? _found;
-  String? _notFoundCode;
-  int _qty = 1;
 
   @override
   void dispose() {
     _barcodeController.dispose();
-    _installerController.dispose();
-    _addressController.dispose();
     super.dispose();
   }
 
   Future<void> _lookup(String code) async {
+    final scannedCode = code.trim();
+    if (scannedCode.isEmpty) return;
+
     final repo = ref.read(inventoryRepositoryProvider);
-    final product = await repo.findByBarcode(code.trim());
+    final product = await repo.findByBarcode(scannedCode);
     if (!mounted) return;
-    setState(() {
-      _found = product;
-      _notFoundCode = product == null ? code.trim() : null;
-      _qty = 1;
-    });
-  }
 
-  Future<void> _simulateScan() async {
-    final products = ref.read(productsProvider).valueOrNull ?? const [];
-    if (products.isEmpty) return;
-    final pick = products[_rng.nextInt(products.length)];
-    _barcodeController.text = pick.barcode;
-    await _lookup(pick.barcode);
-  }
-
-  void _clear() {
-    setState(() {
-      _found = null;
-      _notFoundCode = null;
-      _qty = 1;
+    if (product == null) {
       _barcodeController.clear();
-      _installerController.clear();
-      _addressController.clear();
-    });
-  }
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          fullscreenDialog: true,
+          builder: (_) => ProductDetailScreen(
+            isNew: true,
+            product: Product(
+              id: '',
+              name: '',
+              barcode: scannedCode,
+              sku: '',
+              category: '',
+              location: '',
+              quantity: 0,
+              unit: 'units',
+              minStock: 0,
+            ),
+          ),
+        ),
+      );
+      return;
+    }
 
-  Future<void> _confirm() async {
-    final product = _found;
-    if (product == null) return;
+    final qty = await _askQuantity(product);
+    if (qty == null || qty <= 0) return;
+    if (!mounted) return;
+
     final mode = ref.read(scanModeProvider);
-    final delta = mode.sign * _qty;
-
-    final updated = await ref.read(inventoryRepositoryProvider).adjustQuantity(
-          productId: product.id,
-          delta: delta,
-        );
+    final delta = mode.sign * qty;
+    final updated =
+        await repo.adjustQuantity(productId: product.id, delta: delta);
 
     if (mode == ScanMode.scanOut) {
       await ref.read(installationRepositoryProvider).add(
@@ -88,13 +82,9 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
               id: 'i_${DateTime.now().microsecondsSinceEpoch}',
               productId: product.id,
               productName: product.name,
-              quantity: _qty,
-              installerName: _installerController.text.trim().isEmpty
-                  ? 'Unassigned'
-                  : _installerController.text.trim(),
-              address: _addressController.text.trim().isEmpty
-                  ? 'No address provided'
-                  : _addressController.text.trim(),
+              quantity: qty,
+              installerName: 'Unassigned',
+              address: 'No address provided',
               installedAt: DateTime.now(),
             ),
           );
@@ -105,11 +95,58 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          '$verb $_qty × ${product.name} — now ${updated.quantity} ${product.unit}',
+          '$verb $qty × ${product.name} — now ${updated.quantity} ${product.unit}',
         ),
       ),
     );
-    _clear();
+    _barcodeController.clear();
+  }
+
+  Future<int?> _askQuantity(Product product) {
+    final mode = ref.read(scanModeProvider);
+    final controller = TextEditingController(text: '1');
+    return showDialog<int>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(product.name),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Currently ${product.quantity} ${product.unit} · ${mode.label}',
+              style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'Quantity'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext)
+                .pop(int.tryParse(controller.text.trim()) ?? 1),
+            child: Text(mode.label),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _simulateScan() async {
+    final products = ref.read(productsProvider).valueOrNull ?? const [];
+    if (products.isEmpty) return;
+    final pick = products[_rng.nextInt(products.length)];
+    _barcodeController.text = pick.barcode;
+    await _lookup(pick.barcode);
   }
 
   @override
@@ -126,266 +163,55 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
       ),
       body: SafeArea(
         child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-        children: [
-          const SizedBox(height: 2),
-          const Text(
-            'Move stock in or out by barcode',
-            style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
-          ),
-          const SizedBox(height: 16),
-
-          // Mode toggle — load-bearing, always visible.
-          _ModeToggle(
-            mode: mode,
-            onChanged: (m) => ref.read(scanModeProvider.notifier).state = m,
-          ),
-          const SizedBox(height: 16),
-
-          // Stubbed camera viewport.
-          _CameraStub(mode: mode),
-          const SizedBox(height: 12),
-
-          FilledButton.icon(
-            onPressed: _simulateScan,
-            style: FilledButton.styleFrom(
-              backgroundColor: AppColors.primaryBlue,
-              foregroundColor: Colors.white,
-              minimumSize: const Size.fromHeight(48),
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+          children: [
+            const SizedBox(height: 2),
+            const Text(
+              'Move stock in or out by barcode',
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
             ),
-            icon: const Icon(Icons.qr_code_2),
-            label: const Text('Simulate scan'),
-          ),
-          const SizedBox(height: 12),
+            const SizedBox(height: 16),
 
-          // Manual barcode entry.
-          TextField(
-            controller: _barcodeController,
-            style: const TextStyle(color: AppColors.textPrimary),
-            keyboardType: TextInputType.number,
-            onSubmitted: _lookup,
-            decoration: InputDecoration(
-              prefixIcon: const Icon(Icons.numbers, color: AppColors.textFaint),
-              hintText: 'Enter barcode manually…',
-              suffixIcon: TextButton(
-                onPressed: () => _lookup(_barcodeController.text),
-                child: const Text('Look up'),
-              ),
+            // Mode toggle — load-bearing, always visible.
+            _ModeToggle(
+              mode: mode,
+              onChanged: (m) => ref.read(scanModeProvider.notifier).state = m,
             ),
-          ),
-          const SizedBox(height: 16),
+            const SizedBox(height: 16),
 
-          if (_found != null) _resultSheet(_found!, mode),
-          if (_notFoundCode != null) _notFound(_notFoundCode!),
-        ],
-      ),
-    ),
-    );
-  }
+            // Stubbed camera viewport.
+            _CameraStub(mode: mode),
+            const SizedBox(height: 12),
 
-  Widget _resultSheet(Product product, ScanMode mode) {
-    final resulting = mode == ScanMode.stockIn
-        ? product.quantity + _qty
-        : (product.quantity - _qty).clamp(0, 1 << 30);
-    final accent = mode == ScanMode.stockIn
-        ? AppColors.inStockGreen
-        : AppColors.primaryBlue;
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: accent.withValues(alpha: 0.6)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  product.name,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
+            FilledButton.icon(
+              onPressed: _simulateScan,
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.primaryBlue,
+                foregroundColor: Colors.white,
+                minimumSize: const Size.fromHeight(48),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: accent.withValues(alpha: 0.16),
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: accent),
-                ),
-                child: Text(
-                  mode.label,
-                  style: TextStyle(
-                    color: accent,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 2),
-          Text(
-            '${product.barcode}   ·   ${product.category}   ·   ${product.location}',
-            style: const TextStyle(color: AppColors.textFaint, fontSize: 12),
-          ),
-          const SizedBox(height: 16),
-
-          // Quantity stepper.
-          Row(
-            children: [
-              const Text('Quantity', style: TextStyle(color: AppColors.textSecondary)),
-              const Spacer(),
-              _StepBtn(icon: Icons.remove, onTap: () {
-                if (_qty > 1) setState(() => _qty--);
-              }),
-              SizedBox(
-                width: 44,
-                child: Text(
-                  '$_qty',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              _StepBtn(icon: Icons.add, onTap: () => setState(() => _qty++)),
-            ],
-          ),
-          const SizedBox(height: 14),
-
-          // Resulting-quantity preview — the guardrail.
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: BoxDecoration(
-              color: AppColors.surfaceAlt,
-              borderRadius: BorderRadius.circular(10),
+              icon: const Icon(Icons.qr_code_2),
+              label: const Text('Simulate scan'),
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  '${product.quantity}',
-                  style: const TextStyle(color: AppColors.textSecondary, fontSize: 18),
-                ),
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 10),
-                  child: Icon(Icons.arrow_forward, size: 18, color: AppColors.textFaint),
-                ),
-                Text(
-                  '$resulting',
-                  style: TextStyle(
-                    color: accent,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  product.unit,
-                  style: const TextStyle(color: AppColors.textFaint, fontSize: 13),
-                ),
-              ],
-            ),
-          ),
+            const SizedBox(height: 12),
 
-          // Scan-out captures installer + site address (free-text in slice 1).
-          if (mode == ScanMode.scanOut) ...[
-            const SizedBox(height: 14),
+            // Manual barcode entry.
             TextField(
-              controller: _installerController,
+              controller: _barcodeController,
               style: const TextStyle(color: AppColors.textPrimary),
-              decoration: const InputDecoration(
-                prefixIcon: Icon(Icons.person_outline, color: AppColors.textFaint),
-                hintText: 'Installer name',
-              ),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _addressController,
-              style: const TextStyle(color: AppColors.textPrimary),
-              decoration: const InputDecoration(
-                prefixIcon: Icon(Icons.location_on_outlined, color: AppColors.textFaint),
-                hintText: 'Install site address',
+              keyboardType: TextInputType.number,
+              onSubmitted: _lookup,
+              decoration: InputDecoration(
+                prefixIcon: const Icon(Icons.numbers, color: AppColors.textFaint),
+                hintText: 'Enter barcode manually…',
+                suffixIcon: TextButton(
+                  onPressed: () => _lookup(_barcodeController.text),
+                  child: const Text('Look up'),
+                ),
               ),
             ),
           ],
-
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: _clear,
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.textSecondary,
-                    side: const BorderSide(color: AppColors.surfaceBorder),
-                    minimumSize: const Size.fromHeight(46),
-                  ),
-                  child: const Text('Cancel'),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                flex: 2,
-                child: FilledButton(
-                  onPressed: _confirm,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: accent,
-                    foregroundColor: Colors.white,
-                    minimumSize: const Size.fromHeight(46),
-                  ),
-                  child: Text('Confirm ${mode.label.toLowerCase()}'),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _notFound(String code) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.surfaceBorder),
-      ),
-      child: Column(
-        children: [
-          const Icon(Icons.search_off, color: AppColors.textSecondary, size: 28),
-          const SizedBox(height: 8),
-          Text(
-            'No product found for "$code"',
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
-          ),
-          const SizedBox(height: 12),
-          OutlinedButton.icon(
-            onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Add new product — coming in the inventory-CRUD slice.'),
-              ),
-            ),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppColors.primaryBlue,
-              side: const BorderSide(color: AppColors.primaryBlue),
-            ),
-            icon: const Icon(Icons.add),
-            label: const Text('Add new product'),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -502,30 +328,6 @@ class _CameraStub extends StatelessWidget {
           ),
           Icon(Icons.qr_code_scanner, size: 36, color: accent.withValues(alpha: 0.8)),
         ],
-      ),
-    );
-  }
-}
-
-class _StepBtn extends StatelessWidget {
-  const _StepBtn({required this.icon, required this.onTap});
-  final IconData icon;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        width: 38,
-        height: 38,
-        decoration: BoxDecoration(
-          color: AppColors.surfaceAlt,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppColors.surfaceBorder),
-        ),
-        child: Icon(icon, size: 18, color: AppColors.textPrimary),
       ),
     );
   }

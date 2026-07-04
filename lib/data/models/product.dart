@@ -17,6 +17,7 @@ class Product {
     required this.unit,
     required this.minStock,
     this.serial,
+    this.description,
   });
 
   final String id;
@@ -24,6 +25,7 @@ class Product {
   final String barcode;
   final String sku;
   final String? serial;
+  final String? description;
 
   /// Category name (e.g. "Electrical"). Kept as a plain name in slice 1; a
   /// Firebase repository would resolve a `categoryId` ref to this name.
@@ -43,16 +45,30 @@ class Product {
   StockStatus get status =>
       stockStatusFor(quantity: quantity, minStock: minStock);
 
-  Product copyWith({int? quantity}) => Product(
-        id: id,
-        name: name,
-        barcode: barcode,
-        sku: sku,
-        serial: serial,
-        category: category,
-        location: location,
+  Product copyWith({
+    String? id,
+    String? name,
+    String? barcode,
+    String? sku,
+    String? serial,
+    String? category,
+    String? location,
+    int? quantity,
+    String? unit,
+    int? minStock,
+    String? description,
+  }) =>
+      Product(
+        id: id ?? this.id,
+        name: name ?? this.name,
+        barcode: barcode ?? this.barcode,
+        sku: sku ?? this.sku,
+        serial: serial ?? this.serial,
+        category: category ?? this.category,
+        location: location ?? this.location,
         quantity: quantity ?? this.quantity,
-        unit: unit,
-        minStock: minStock,
+        unit: unit ?? this.unit,
+        minStock: minStock ?? this.minStock,
+        description: description ?? this.description,
       );
 }
