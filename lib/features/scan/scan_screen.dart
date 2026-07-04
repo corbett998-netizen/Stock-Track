@@ -1,23 +1,12 @@
-import 'dart:math';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_colors.dart';
-import '../../data/models/installation.dart';
 import '../../data/models/product.dart';
 import '../../data/providers/inventory_providers.dart';
 import '../../data/providers/repository_providers.dart';
 import '../inventory/product_detail_screen.dart';
-import 'scan_providers.dart';
 
-/// Scan tab. The camera is STUBBED for slice 1 (no `mobile_scanner` wired) — a
-/// "Simulate scan" button stands in for a live decode, and a manual barcode
-/// field lets you look up any item. A known barcode prompts a quick quantity
-/// dialog and writes straight through `adjustQuantity`; an unknown barcode
-/// opens the product-detail screen in "new product" mode with the scanned
-/// code pre-filled. Swapping in a real camera later is additive: it only
-/// needs to feed a decoded barcode into the same lookup.
 class ScanScreen extends ConsumerStatefulWidget {
   const ScanScreen({super.key});
 
@@ -27,7 +16,10 @@ class ScanScreen extends ConsumerStatefulWidget {
 
 class _ScanScreenState extends ConsumerState<ScanScreen> {
   final _barcodeController = TextEditingController();
-  final _rng = Random();
+
+  // Quantity adjustment state — shown after a successful match.
+  Product? _matchedProduct;
+  int _qty = 1;
 
   @override
   void dispose() {
@@ -38,12 +30,14 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
   Future<void> _lookup(String code) async {
     final scannedCode = code.trim();
     if (scannedCode.isEmpty) return;
+    FocusScope.of(context).unfocus();
 
     final repo = ref.read(inventoryRepositoryProvider);
     final product = await repo.findByBarcode(scannedCode);
     if (!mounted) return;
 
     if (product == null) {
+      // Unknown barcode → new product entry screen.
       _barcodeController.clear();
       await Navigator.of(context).push(
         MaterialPageRoute(
@@ -64,94 +58,55 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
           ),
         ),
       );
+      _barcodeController.clear();
       return;
     }
 
-    final qty = await _askQuantity(product);
-    if (qty == null || qty <= 0) return;
+    // Known product → show quantity adjuster.
+    setState(() {
+      _matchedProduct = product;
+      _qty = 1;
+    });
+  }
+
+  Future<void> _confirmAdd() async {
+    final product = _matchedProduct;
+    if (product == null || _qty <= 0) return;
+
+    final repo = ref.read(inventoryRepositoryProvider);
+    await repo.adjustQuantity(productId: product.id, delta: _qty);
     if (!mounted) return;
 
-    final mode = ref.read(scanModeProvider);
-    final delta = mode.sign * qty;
-    final updated =
-        await repo.adjustQuantity(productId: product.id, delta: delta);
-
-    if (mode == ScanMode.scanOut) {
-      await ref.read(installationRepositoryProvider).add(
-            Installation(
-              id: 'i_${DateTime.now().microsecondsSinceEpoch}',
-              productId: product.id,
-              productName: product.name,
-              quantity: qty,
-              installerName: 'Unassigned',
-              address: 'No address provided',
-              installedAt: DateTime.now(),
-            ),
-          );
-    }
-
-    if (!mounted) return;
-    final verb = mode == ScanMode.stockIn ? 'Stocked in' : 'Scanned out';
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          '$verb $qty × ${product.name} — now ${updated.quantity} ${product.unit}',
+          'Added $_qty × ${product.name} — now ${product.quantity + _qty} ${product.unit}',
         ),
       ),
     );
-    _barcodeController.clear();
+    setState(() {
+      _matchedProduct = null;
+      _qty = 1;
+      _barcodeController.clear();
+    });
   }
 
-  Future<int?> _askQuantity(Product product) {
-    final mode = ref.read(scanModeProvider);
-    final controller = TextEditingController(text: '1');
-    return showDialog<int>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(product.name),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Currently ${product.quantity} ${product.unit} · ${mode.label}',
-              style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: controller,
-              autofocus: true,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Quantity'),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext)
-                .pop(int.tryParse(controller.text.trim()) ?? 1),
-            child: Text(mode.label),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _simulateScan() async {
-    final products = ref.read(productsProvider).valueOrNull ?? const [];
-    if (products.isEmpty) return;
-    final pick = products[_rng.nextInt(products.length)];
-    _barcodeController.text = pick.barcode;
-    await _lookup(pick.barcode);
+  void _dismissMatch() {
+    setState(() {
+      _matchedProduct = null;
+      _qty = 1;
+      _barcodeController.clear();
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    final mode = ref.watch(scanModeProvider);
+    // Keep matched product fresh from the live stream.
+    final liveProduct = _matchedProduct == null
+        ? null
+        : (ref.watch(productsProvider).valueOrNull ?? [])
+            .where((p) => p.id == _matchedProduct!.id)
+            .firstOrNull;
 
     return Scaffold(
       appBar: AppBar(
@@ -162,172 +117,289 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
         ),
       ),
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-          children: [
-            const SizedBox(height: 2),
-            const Text(
-              'Move stock in or out by barcode',
-              style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
-            ),
-            const SizedBox(height: 16),
-
-            // Mode toggle — load-bearing, always visible.
-            _ModeToggle(
-              mode: mode,
-              onChanged: (m) => ref.read(scanModeProvider.notifier).state = m,
-            ),
-            const SizedBox(height: 16),
-
-            // Stubbed camera viewport.
-            _CameraStub(mode: mode),
-            const SizedBox(height: 12),
-
-            FilledButton.icon(
-              onPressed: _simulateScan,
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.primaryBlue,
-                foregroundColor: Colors.white,
-                minimumSize: const Size.fromHeight(48),
+        child: _matchedProduct != null
+            ? _QuantityAdjuster(
+                product: liveProduct ?? _matchedProduct!,
+                qty: _qty,
+                onQtyChanged: (v) => setState(() => _qty = v),
+                onConfirm: _confirmAdd,
+                onCancel: _dismissMatch,
+              )
+            : _ScannerView(
+                barcodeController: _barcodeController,
+                onLookup: _lookup,
               ),
-              icon: const Icon(Icons.qr_code_2),
-              label: const Text('Simulate scan'),
-            ),
-            const SizedBox(height: 12),
-
-            // Manual barcode entry.
-            TextField(
-              controller: _barcodeController,
-              style: const TextStyle(color: AppColors.textPrimary),
-              keyboardType: TextInputType.number,
-              onSubmitted: _lookup,
-              decoration: InputDecoration(
-                prefixIcon: const Icon(Icons.numbers, color: AppColors.textFaint),
-                hintText: 'Enter barcode manually…',
-                suffixIcon: TextButton(
-                  onPressed: () => _lookup(_barcodeController.text),
-                  child: const Text('Look up'),
-                ),
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
 }
 
-class _ModeToggle extends StatelessWidget {
-  const _ModeToggle({required this.mode, required this.onChanged});
-  final ScanMode mode;
-  final ValueChanged<ScanMode> onChanged;
+// ── Scanner view (camera stub + manual entry) ─────────────────────────────────
+
+class _ScannerView extends StatelessWidget {
+  const _ScannerView({
+    required this.barcodeController,
+    required this.onLookup,
+  });
+
+  final TextEditingController barcodeController;
+  final ValueChanged<String> onLookup;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceAlt,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.surfaceBorder),
-      ),
-      child: Row(
-        children: [
-          _segment(
-            label: 'Stock-in',
-            icon: Icons.south_west,
-            selected: mode == ScanMode.stockIn,
-            color: AppColors.inStockGreen,
-            onTap: () => onChanged(ScanMode.stockIn),
-          ),
-          _segment(
-            label: 'Scan-out',
-            icon: Icons.north_east,
-            selected: mode == ScanMode.scanOut,
-            color: AppColors.primaryBlue,
-            onTap: () => onChanged(ScanMode.scanOut),
-          ),
-        ],
-      ),
-    );
-  }
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+      children: [
+        const Text(
+          'Point camera at a barcode or enter it manually',
+          style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+        ),
+        const SizedBox(height: 16),
 
-  Widget _segment({
-    required String label,
-    required IconData icon,
-    required bool selected,
-    required Color color,
-    required VoidCallback onTap,
-  }) {
-    return Expanded(
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(9),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 11),
+        // Stubbed camera viewport.
+        Container(
+          height: 220,
           decoration: BoxDecoration(
-            color: selected ? color.withValues(alpha: 0.18) : Colors.transparent,
-            borderRadius: BorderRadius.circular(9),
-            border: Border.all(
-              color: selected ? color : Colors.transparent,
-            ),
+            color: Colors.black,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppColors.surfaceBorder),
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          child: Stack(
+            alignment: Alignment.center,
             children: [
-              Icon(icon, size: 16, color: selected ? color : AppColors.textSecondary),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: TextStyle(
-                  color: selected ? color : AppColors.textSecondary,
-                  fontWeight: FontWeight.w600,
+              Container(
+                width: 180,
+                height: 110,
+                decoration: BoxDecoration(
+                  border: Border.all(color: AppColors.primaryBlue, width: 2),
+                  borderRadius: BorderRadius.circular(10),
                 ),
               ),
+              const Positioned(
+                bottom: 14,
+                child: Text(
+                  'Camera coming soon — use manual entry below',
+                  style: TextStyle(color: AppColors.textFaint, fontSize: 11),
+                ),
+              ),
+              const Icon(Icons.qr_code_scanner,
+                  size: 40, color: AppColors.primaryBlue),
             ],
           ),
         ),
+        const SizedBox(height: 16),
+
+        // Manual barcode entry.
+        TextField(
+          controller: barcodeController,
+          style: const TextStyle(color: AppColors.textPrimary),
+          keyboardType: TextInputType.number,
+          textInputAction: TextInputAction.search,
+          onSubmitted: onLookup,
+          decoration: InputDecoration(
+            prefixIcon:
+                const Icon(Icons.numbers, color: AppColors.textFaint),
+            hintText: 'Enter barcode…',
+            suffixIcon: TextButton(
+              onPressed: () => onLookup(barcodeController.text),
+              child: const Text('Look up'),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Quantity adjuster (shown after a match) ───────────────────────────────────
+
+class _QuantityAdjuster extends StatefulWidget {
+  const _QuantityAdjuster({
+    required this.product,
+    required this.qty,
+    required this.onQtyChanged,
+    required this.onConfirm,
+    required this.onCancel,
+  });
+
+  final Product product;
+  final int qty;
+  final ValueChanged<int> onQtyChanged;
+  final VoidCallback onConfirm;
+  final VoidCallback onCancel;
+
+  @override
+  State<_QuantityAdjuster> createState() => _QuantityAdjusterState();
+}
+
+class _QuantityAdjusterState extends State<_QuantityAdjuster> {
+  late final _controller =
+      TextEditingController(text: widget.qty.toString());
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _set(int value) {
+    final clamped = value.clamp(1, 9999);
+    _controller.text = clamped.toString();
+    _controller.selection = TextSelection.collapsed(
+      offset: _controller.text.length,
+    );
+    widget.onQtyChanged(clamped);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = widget.product;
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Product card.
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.surfaceBorder),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  p.name,
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${p.category}  ·  ${p.location}',
+                  style: const TextStyle(
+                      color: AppColors.textFaint, fontSize: 13),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Current stock: ${p.quantity} ${p.unit}',
+                  style: const TextStyle(
+                      color: AppColors.textSecondary, fontSize: 14),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 32),
+
+          const Text(
+            'How many are you adding?',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // +/- stepper + text input.
+          Row(
+            children: [
+              _StepButton(
+                icon: Icons.remove,
+                onTap: () => _set(widget.qty - 1),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: TextField(
+                  controller: _controller,
+                  textAlign: TextAlign.center,
+                  keyboardType: TextInputType.number,
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 28,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  onChanged: (v) {
+                    final parsed = int.tryParse(v);
+                    if (parsed != null && parsed > 0) {
+                      widget.onQtyChanged(parsed);
+                    }
+                  },
+                ),
+              ),
+              const SizedBox(width: 12),
+              _StepButton(
+                icon: Icons.add,
+                onTap: () => _set(widget.qty + 1),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'New total will be: ${p.quantity + widget.qty} ${p.unit}',
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+                color: AppColors.textSecondary, fontSize: 13),
+          ),
+
+          const Spacer(),
+
+          FilledButton(
+            onPressed: widget.onConfirm,
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.inStockGreen,
+              foregroundColor: Colors.white,
+              minimumSize: const Size.fromHeight(52),
+            ),
+            child: Text(
+              'Add ${widget.qty} to stock',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+            ),
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton(
+            onPressed: widget.onCancel,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.textSecondary,
+              side: const BorderSide(color: AppColors.surfaceBorder),
+              minimumSize: const Size.fromHeight(48),
+            ),
+            child: const Text('Cancel'),
+          ),
+        ],
       ),
     );
   }
 }
 
-class _CameraStub extends StatelessWidget {
-  const _CameraStub({required this.mode});
-  final ScanMode mode;
+class _StepButton extends StatelessWidget {
+  const _StepButton({required this.icon, required this.onTap});
+  final IconData icon;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final accent = mode == ScanMode.stockIn
-        ? AppColors.inStockGreen
-        : AppColors.primaryBlue;
-    return Container(
-      height: 180,
-      decoration: BoxDecoration(
-        color: Colors.black,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.surfaceBorder),
-      ),
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Container(
-            width: 160,
-            height: 100,
-            decoration: BoxDecoration(
-              border: Border.all(color: accent, width: 2),
-              borderRadius: BorderRadius.circular(10),
-            ),
-          ),
-          const Positioned(
-            bottom: 12,
-            child: Text(
-              'Camera stubbed for slice 1',
-              style: TextStyle(color: AppColors.textFaint, fontSize: 11),
-            ),
-          ),
-          Icon(Icons.qr_code_scanner, size: 36, color: accent.withValues(alpha: 0.8)),
-        ],
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        width: 56,
+        height: 56,
+        decoration: BoxDecoration(
+          color: AppColors.surfaceAlt,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.surfaceBorder),
+        ),
+        child: Icon(icon, color: AppColors.textPrimary, size: 24),
       ),
     );
   }
