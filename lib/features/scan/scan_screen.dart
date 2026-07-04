@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../data/models/product.dart';
@@ -16,20 +17,30 @@ class ScanScreen extends ConsumerStatefulWidget {
 
 class _ScanScreenState extends ConsumerState<ScanScreen> {
   final _barcodeController = TextEditingController();
+  final _cameraController = MobileScannerController(
+    detectionSpeed: DetectionSpeed.noDuplicates,
+    returnImage: false,
+  );
 
-  // Quantity adjustment state — shown after a successful match.
   Product? _matchedProduct;
   int _qty = 1;
+  bool _scanning = true; // false while processing a result
+  bool _torchOn = false;
 
   @override
   void dispose() {
     _barcodeController.dispose();
+    _cameraController.dispose();
     super.dispose();
   }
 
   Future<void> _lookup(String code) async {
     final scannedCode = code.trim();
     if (scannedCode.isEmpty) return;
+
+    // Pause camera while we process.
+    setState(() => _scanning = false);
+    await _cameraController.stop();
     FocusScope.of(context).unfocus();
 
     final repo = ref.read(inventoryRepositoryProvider);
@@ -37,7 +48,6 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
     if (!mounted) return;
 
     if (product == null) {
-      // Unknown barcode → new product entry screen.
       _barcodeController.clear();
       await Navigator.of(context).push(
         MaterialPageRoute(
@@ -59,10 +69,10 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
         ),
       );
       _barcodeController.clear();
+      _resumeScanning();
       return;
     }
 
-    // Known product → show quantity adjuster.
     setState(() {
       _matchedProduct = product;
       _qty = 1;
@@ -84,11 +94,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
         ),
       ),
     );
-    setState(() {
-      _matchedProduct = null;
-      _qty = 1;
-      _barcodeController.clear();
-    });
+    _dismissMatch();
   }
 
   void _dismissMatch() {
@@ -97,11 +103,16 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
       _qty = 1;
       _barcodeController.clear();
     });
+    _resumeScanning();
+  }
+
+  void _resumeScanning() {
+    _cameraController.start();
+    setState(() => _scanning = true);
   }
 
   @override
   Widget build(BuildContext context) {
-    // Keep matched product fresh from the live stream.
     final liveProduct = _matchedProduct == null
         ? null
         : (ref.watch(productsProvider).valueOrNull ?? [])
@@ -115,6 +126,16 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
           icon: const Icon(Icons.close),
           onPressed: () => Navigator.of(context).pop(),
         ),
+        actions: [
+          if (_matchedProduct == null)
+            IconButton(
+              icon: Icon(_torchOn ? Icons.flash_on : Icons.flash_off),
+              onPressed: () {
+                _cameraController.toggleTorch();
+                setState(() => _torchOn = !_torchOn);
+              },
+            ),
+        ],
       ),
       body: SafeArea(
         child: _matchedProduct != null
@@ -126,24 +147,34 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
                 onCancel: _dismissMatch,
               )
             : _ScannerView(
+                cameraController: _cameraController,
                 barcodeController: _barcodeController,
                 onLookup: _lookup,
+                onDetect: (barcode) {
+                  if (!_scanning) return;
+                  final raw = barcode.barcodes.firstOrNull?.rawValue;
+                  if (raw != null) _lookup(raw);
+                },
               ),
       ),
     );
   }
 }
 
-// ── Scanner view (camera stub + manual entry) ─────────────────────────────────
+// ── Scanner view ──────────────────────────────────────────────────────────────
 
 class _ScannerView extends StatelessWidget {
   const _ScannerView({
+    required this.cameraController,
     required this.barcodeController,
     required this.onLookup,
+    required this.onDetect,
   });
 
+  final MobileScannerController cameraController;
   final TextEditingController barcodeController;
   final ValueChanged<String> onLookup;
+  final ValueChanged<BarcodeCapture> onDetect;
 
   @override
   Widget build(BuildContext context) {
@@ -156,40 +187,37 @@ class _ScannerView extends StatelessWidget {
         ),
         const SizedBox(height: 16),
 
-        // Stubbed camera viewport.
-        Container(
-          height: 220,
-          decoration: BoxDecoration(
-            color: Colors.black,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: AppColors.surfaceBorder),
-          ),
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              Container(
-                width: 180,
-                height: 110,
-                decoration: BoxDecoration(
-                  border: Border.all(color: AppColors.primaryBlue, width: 2),
-                  borderRadius: BorderRadius.circular(10),
+        // Live camera viewport.
+        ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: SizedBox(
+            height: 240,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                MobileScanner(
+                  controller: cameraController,
+                  onDetect: onDetect,
                 ),
-              ),
-              const Positioned(
-                bottom: 14,
-                child: Text(
-                  'Camera coming soon — use manual entry below',
-                  style: TextStyle(color: AppColors.textFaint, fontSize: 11),
+                // Finder overlay.
+                Center(
+                  child: Container(
+                    width: 200,
+                    height: 120,
+                    decoration: BoxDecoration(
+                      border: Border.all(
+                          color: AppColors.primaryBlue, width: 2),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
                 ),
-              ),
-              const Icon(Icons.qr_code_scanner,
-                  size: 40, color: AppColors.primaryBlue),
-            ],
+              ],
+            ),
           ),
         ),
         const SizedBox(height: 16),
 
-        // Manual barcode entry.
+        // Manual entry.
         TextField(
           controller: barcodeController,
           style: const TextStyle(color: AppColors.textPrimary),
@@ -199,7 +227,7 @@ class _ScannerView extends StatelessWidget {
           decoration: InputDecoration(
             prefixIcon:
                 const Icon(Icons.numbers, color: AppColors.textFaint),
-            hintText: 'Enter barcode…',
+            hintText: 'Enter barcode manually…',
             suffixIcon: TextButton(
               onPressed: () => onLookup(barcodeController.text),
               child: const Text('Look up'),
@@ -211,7 +239,7 @@ class _ScannerView extends StatelessWidget {
   }
 }
 
-// ── Quantity adjuster (shown after a match) ───────────────────────────────────
+// ── Quantity adjuster ─────────────────────────────────────────────────────────
 
 class _QuantityAdjuster extends StatefulWidget {
   const _QuantityAdjuster({
@@ -245,9 +273,8 @@ class _QuantityAdjusterState extends State<_QuantityAdjuster> {
   void _set(int value) {
     final clamped = value.clamp(1, 9999);
     _controller.text = clamped.toString();
-    _controller.selection = TextSelection.collapsed(
-      offset: _controller.text.length,
-    );
+    _controller.selection =
+        TextSelection.collapsed(offset: _controller.text.length);
     widget.onQtyChanged(clamped);
   }
 
@@ -259,7 +286,6 @@ class _QuantityAdjusterState extends State<_QuantityAdjuster> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Product card.
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -306,13 +332,10 @@ class _QuantityAdjusterState extends State<_QuantityAdjuster> {
           ),
           const SizedBox(height: 20),
 
-          // +/- stepper + text input.
           Row(
             children: [
               _StepButton(
-                icon: Icons.remove,
-                onTap: () => _set(widget.qty - 1),
-              ),
+                  icon: Icons.remove, onTap: () => _set(widget.qty - 1)),
               const SizedBox(width: 12),
               Expanded(
                 child: TextField(
@@ -338,9 +361,7 @@ class _QuantityAdjusterState extends State<_QuantityAdjuster> {
               ),
               const SizedBox(width: 12),
               _StepButton(
-                icon: Icons.add,
-                onTap: () => _set(widget.qty + 1),
-              ),
+                  icon: Icons.add, onTap: () => _set(widget.qty + 1)),
             ],
           ),
           const SizedBox(height: 8),
@@ -362,7 +383,8 @@ class _QuantityAdjusterState extends State<_QuantityAdjuster> {
             ),
             child: Text(
               'Add ${widget.qty} to stock',
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+              style: const TextStyle(
+                  fontSize: 16, fontWeight: FontWeight.w700),
             ),
           ),
           const SizedBox(height: 12),
