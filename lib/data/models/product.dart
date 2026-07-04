@@ -1,10 +1,7 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 import '../../core/utils/stock_status.dart';
 
-/// A product / inventory item — the source of truth for a SKU's on-hand stock.
-///
-/// Dumb + immutable. In this slice it is built from the mock repository; a
-/// later `Product.fromFirestore(...)` constructor is the only thing a Firebase
-/// repository adds (the rest of the app is identical).
 class Product {
   const Product({
     required this.id,
@@ -18,6 +15,7 @@ class Product {
     required this.minStock,
     this.serial,
     this.description,
+    this.photoUrl,
   });
 
   final String id;
@@ -26,24 +24,47 @@ class Product {
   final String sku;
   final String? serial;
   final String? description;
-
-  /// Category name (e.g. "Electrical"). Kept as a plain name in slice 1; a
-  /// Firebase repository would resolve a `categoryId` ref to this name.
+  final String? photoUrl;
   final String category;
-
-  /// Shelf / bin name (e.g. "Shelf C1").
   final String location;
-
   final int quantity;
-
-  /// "units" / "rolls" / "lengths".
   final String unit;
-
   final int minStock;
 
-  /// Derived — never stored as a separate hand-set field. Single source.
   StockStatus get status =>
       stockStatusFor(quantity: quantity, minStock: minStock);
+
+  factory Product.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final d = doc.data()!;
+    return Product(
+      id: doc.id,
+      name: d['name'] as String? ?? '',
+      barcode: d['barcode'] as String? ?? '',
+      sku: d['sku'] as String? ?? '',
+      serial: d['serial'] as String?,
+      description: d['description'] as String?,
+      photoUrl: d['photoUrl'] as String?,
+      category: d['category'] as String? ?? '',
+      location: d['location'] as String? ?? '',
+      quantity: (d['quantity'] as num?)?.toInt() ?? 0,
+      unit: d['unit'] as String? ?? 'units',
+      minStock: (d['minStock'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  Map<String, dynamic> toMap() => {
+        'name': name,
+        'barcode': barcode,
+        'sku': sku,
+        if (serial != null) 'serial': serial,
+        if (description != null) 'description': description,
+        if (photoUrl != null) 'photoUrl': photoUrl,
+        'category': category,
+        'location': location,
+        'quantity': quantity,
+        'unit': unit,
+        'minStock': minStock,
+      };
 
   Product copyWith({
     String? id,
@@ -57,6 +78,7 @@ class Product {
     String? unit,
     int? minStock,
     String? description,
+    String? photoUrl,
   }) =>
       Product(
         id: id ?? this.id,
@@ -70,5 +92,6 @@ class Product {
         unit: unit ?? this.unit,
         minStock: minStock ?? this.minStock,
         description: description ?? this.description,
+        photoUrl: photoUrl ?? this.photoUrl,
       );
 }

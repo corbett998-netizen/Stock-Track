@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app.dart';
 import 'data/providers/repository_providers.dart';
+import 'data/repositories/firebase_inventory_repository.dart';
 import 'data/repositories/installation_repository.dart';
 import 'data/repositories/inventory_repository.dart';
 import 'features/dev/chat/screens/orchestrator_chat_screen.dart';
@@ -57,7 +58,7 @@ Future<void> main() async {
       // is chosen HERE and nowhere else.
       // ===========================================================
       overrides: [
-        inventoryRepositoryProvider.overrideWithValue(MockInventoryRepository()),
+        inventoryRepositoryProvider.overrideWithValue(FirebaseInventoryRepository()),
         installationRepositoryProvider
             .overrideWithValue(MockInstallationRepository()),
         ...harnessOverrides,

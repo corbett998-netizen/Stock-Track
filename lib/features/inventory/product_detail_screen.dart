@@ -11,6 +11,7 @@ import '../../core/widgets/stock_level_bar.dart';
 import '../../data/models/product.dart';
 import '../../data/providers/inventory_providers.dart';
 import '../../data/providers/repository_providers.dart';
+import '../../data/repositories/firebase_inventory_repository.dart';
 
 /// Product detail / create / edit screen.
 ///
@@ -99,6 +100,7 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
   Future<void> _save() async {
     setState(() => _saving = true);
     final repo = ref.read(inventoryRepositoryProvider);
+    final fbRepo = repo is FirebaseInventoryRepository ? repo : null;
     final quantity =
         int.tryParse(_quantityController.text.trim()) ?? widget.product.quantity;
     final minStock =
@@ -106,9 +108,18 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
     final description = _descriptionController.text.trim();
 
     if (widget.isNew) {
+      // Generate a doc id first so we can use it for the photo path.
+      final tempId = 'p_${DateTime.now().microsecondsSinceEpoch}';
+      String? photoUrl;
+      if (_pickedPhoto != null && fbRepo != null) {
+        photoUrl = await fbRepo.uploadPhoto(
+          productId: tempId,
+          file: File(_pickedPhoto!.path),
+        );
+      }
       await repo.addProduct(
         widget.product.copyWith(
-          id: 'p_${DateTime.now().microsecondsSinceEpoch}',
+          id: tempId,
           name: _nameController.text.trim(),
           description: description.isEmpty ? null : description,
           category: _categoryController.text.trim(),
@@ -116,12 +127,37 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
           unit: _unitController.text.trim(),
           minStock: minStock,
           quantity: quantity,
+          photoUrl: photoUrl,
         ),
       );
     } else {
-      final delta = quantity - widget.product.quantity;
-      if (delta != 0) {
-        await repo.adjustQuantity(productId: widget.product.id, delta: delta);
+      // Upload new photo if one was picked.
+      String? photoUrl = widget.product.photoUrl;
+      if (_pickedPhoto != null && fbRepo != null) {
+        photoUrl = await fbRepo.uploadPhoto(
+          productId: widget.product.id,
+          file: File(_pickedPhoto!.path),
+        );
+      }
+      // Persist full updated product.
+      final updated = widget.product.copyWith(
+        name: _nameController.text.trim(),
+        description: description.isEmpty ? null : description,
+        category: _categoryController.text.trim(),
+        location: _locationController.text.trim(),
+        unit: _unitController.text.trim(),
+        minStock: minStock,
+        quantity: quantity,
+        photoUrl: photoUrl,
+      );
+      if (fbRepo != null) {
+        await fbRepo.updateProduct(updated);
+      } else {
+        final delta = quantity - widget.product.quantity;
+        if (delta != 0) {
+          await repo.adjustQuantity(
+              productId: widget.product.id, delta: delta);
+        }
       }
     }
 
@@ -192,6 +228,19 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
               ),
             ),
             const SizedBox(height: 16),
+
+            if (widget.product.photoUrl != null) ...[
+              ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: Image.network(
+                  widget.product.photoUrl!,
+                  width: double.infinity,
+                  height: 200,
+                  fit: BoxFit.cover,
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
 
             if (widget.product.description != null &&
                 widget.product.description!.isNotEmpty) ...[
