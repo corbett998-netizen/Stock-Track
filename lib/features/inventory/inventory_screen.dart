@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_colors.dart';
 import '../../data/models/product.dart';
 import '../../data/providers/inventory_providers.dart';
+import '../scan/scan_screen.dart';
 import 'product_detail_screen.dart';
 
 class InventoryScreen extends ConsumerWidget {
@@ -49,7 +50,12 @@ class InventoryScreen extends ConsumerWidget {
                       ),
                     ),
                     FilledButton.icon(
-                      onPressed: () => _comingSoon(context, 'Add product'),
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          fullscreenDialog: true,
+                          builder: (_) => const ScanScreen(),
+                        ),
+                      ),
                       style: FilledButton.styleFrom(
                         backgroundColor: AppColors.primaryBlue,
                         foregroundColor: Colors.white,
