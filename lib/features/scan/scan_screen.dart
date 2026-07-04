@@ -116,18 +116,18 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
   Widget build(BuildContext context) {
     final mode = ref.watch(scanModeProvider);
 
-    return SafeArea(
-      child: ListView(
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Scan'),
+        leading: IconButton(
+          icon: const Icon(Icons.close),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+      ),
+      body: SafeArea(
+        child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
         children: [
-          const Text(
-            'Scan',
-            style: TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 22,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
           const SizedBox(height: 2),
           const Text(
             'Move stock in or out by barcode',
@@ -179,6 +179,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
           if (_notFoundCode != null) _notFound(_notFoundCode!),
         ],
       ),
+    ),
     );
   }
 
