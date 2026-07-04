@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/stock_status.dart';
@@ -49,6 +50,7 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
       TextEditingController(text: widget.product.quantity.toString());
 
   bool _saving = false;
+  XFile? _pickedPhoto;
 
   @override
   void dispose() {
@@ -60,6 +62,12 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
     _minStockController.dispose();
     _quantityController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickPhoto() async {
+    final picker = ImagePicker();
+    final file = await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
+    if (file != null) setState(() => _pickedPhoto = file);
   }
 
   Future<void> _save() async {
@@ -207,6 +215,59 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
               label: const Text('Delete product'),
             ),
           ] else ...[
+            // Keyboard dismiss + photo row
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                TextButton.icon(
+                  onPressed: () => FocusScope.of(context).unfocus(),
+                  icon: const Icon(Icons.keyboard_hide, size: 18),
+                  label: const Text('Hide keyboard'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.textSecondary,
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: _saving ? null : _pickPhoto,
+                  icon: const Icon(Icons.add_a_photo_outlined, size: 18),
+                  label: Text(
+                    _pickedPhoto == null ? 'Add photo' : 'Change photo',
+                  ),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.primaryBlue,
+                  ),
+                ),
+              ],
+            ),
+
+            if (_pickedPhoto != null) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Icon(Icons.check_circle_outline,
+                      size: 14, color: AppColors.inStockGreen),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      _pickedPhoto!.name,
+                      style: const TextStyle(
+                          color: AppColors.textFaint, fontSize: 12),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close,
+                        size: 16, color: AppColors.textFaint),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    onPressed: () => setState(() => _pickedPhoto = null),
+                  ),
+                ],
+              ),
+            ],
+
+            const SizedBox(height: 8),
+
             if (widget.isNew)
               Padding(
                 padding: const EdgeInsets.only(bottom: 12),
@@ -246,13 +307,13 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
               children: [
                 if (!widget.isNew) ...[
                   Expanded(
-                    child: OutlinedButton(
+                    child: FilledButton(
                       onPressed: _saving
                           ? null
                           : () => setState(() => _editing = false),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.textSecondary,
-                        side: const BorderSide(color: AppColors.surfaceBorder),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.red,
+                        foregroundColor: Colors.white,
                         minimumSize: const Size.fromHeight(48),
                       ),
                       child: const Text('Cancel'),
@@ -261,7 +322,6 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
                   const SizedBox(width: 12),
                 ],
                 Expanded(
-                  flex: 2,
                   child: FilledButton(
                     onPressed: _saving ? null : _save,
                     style: FilledButton.styleFrom(
