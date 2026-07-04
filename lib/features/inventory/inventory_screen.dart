@@ -2,11 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_colors.dart';
-import '../../core/utils/stock_status.dart';
-import '../../core/widgets/status_badge.dart';
-import '../../core/widgets/stock_level_bar.dart';
 import '../../data/models/product.dart';
 import '../../data/providers/inventory_providers.dart';
+import 'product_detail_screen.dart';
 
 class InventoryScreen extends ConsumerWidget {
   const InventoryScreen({super.key});
@@ -150,105 +148,48 @@ class _ProductRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isLow = product.status.isLow;
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.surfaceBorder),
+    return InkWell(
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(
+          fullscreenDialog: true,
+          builder: (_) => ProductDetailScreen(product: product),
+        ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Flexible(
-                child: Text(
-                  product.name,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.surfaceBorder),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    product.name,
+                    style: const TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${product.category}  ·  ${product.location}  ·  ${product.quantity} ${product.unit}',
+                    style: const TextStyle(color: AppColors.textFaint, fontSize: 12),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
               ),
-              const SizedBox(width: 8),
-              StatusBadge(status: product.status),
-              const Spacer(),
-              _RowActions(product: product),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '${product.barcode}   ·   ${product.category}   ·   ${product.location}',
-            style: const TextStyle(color: AppColors.textFaint, fontSize: 12),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: StockLevelBar(
-                  quantity: product.quantity,
-                  minStock: product.minStock,
-                  isLow: isLow,
-                ),
-              ),
-              const SizedBox(width: 12),
-              RichText(
-                text: TextSpan(
-                  children: [
-                    TextSpan(
-                      text: '${product.quantity} ${product.unit}',
-                      style: const TextStyle(
-                        color: AppColors.textPrimary,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    TextSpan(
-                      text: '  / min ${product.minStock}',
-                      style: const TextStyle(
-                        color: AppColors.textFaint,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ],
+            ),
+            const Icon(Icons.chevron_right, color: AppColors.textFaint, size: 20),
+          ],
+        ),
       ),
-    );
-  }
-}
-
-class _RowActions extends StatelessWidget {
-  const _RowActions({required this.product});
-  final Product product;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _iconBtn(context, Icons.autorenew, AppColors.inStockGreen, 'Restock'),
-        _iconBtn(context, Icons.edit_outlined, AppColors.textSecondary, 'Edit'),
-        _iconBtn(context, Icons.delete_outline, AppColors.lowOrange, 'Delete'),
-      ],
-    );
-  }
-
-  Widget _iconBtn(BuildContext context, IconData icon, Color color, String label) {
-    return IconButton(
-      visualDensity: VisualDensity.compact,
-      constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
-      padding: EdgeInsets.zero,
-      iconSize: 18,
-      color: color,
-      onPressed: () => _comingSoon(context, '$label ${product.name}'),
-      icon: Icon(icon),
     );
   }
 }
