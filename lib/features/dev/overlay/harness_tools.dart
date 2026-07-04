@@ -129,7 +129,9 @@ final List<HarnessToolSpec> kHarnessTools = <HarnessToolSpec>[
             .pokeOrchestrator(note: 'owner poke')
             .catchError((_) {}),
       );
-      ScaffoldMessenger.maybeOf(rootCtx)?.showSnackBar(
+      final messengerCtx =
+          SingleInstanceLauncher.navigatorKey?.currentContext ?? rootCtx;
+      ScaffoldMessenger.maybeOf(messengerCtx)?.showSnackBar(
         SnackBar(
           duration: const Duration(seconds: 2),
           content: Text(
