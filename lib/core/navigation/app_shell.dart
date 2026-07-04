@@ -1,30 +1,38 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../features/customers/customers_screen.dart';
 import '../../features/dashboard/dashboard_screen.dart';
 import '../../features/inventory/inventory_screen.dart';
 import '../../features/scan/scan_screen.dart';
+import '../../features/work_orders/work_orders_screen.dart';
 import '../theme/app_colors.dart';
 import '../utils/current_screen_tracker.dart';
 import 'nav_providers.dart';
 
-/// Bottom-nav shell hosting the 3 slice-1 tabs (Dashboard · Inventory · Scan).
-/// History / Installers are reserved for slice 2 and intentionally NOT wired as
-/// dead tabs. Tabs live in an [IndexedStack] so each keeps its state (and its
-/// live stream subscription) when switching.
+/// Bottom-nav shell hosting the slice-1 tabs (Dashboard · Inventory · Work Orders ·
+/// Customers). Scan is reached via the AppBar action instead of a tab. Tabs live
+/// in an [IndexedStack] so each keeps its state (and its live stream subscription)
+/// when switching.
 class AppShell extends ConsumerWidget {
   const AppShell({super.key});
 
   static const _tabs = [
     DashboardScreen(),
     InventoryScreen(),
-    ScanScreen(),
+    WorkOrdersScreen(),
+    CustomersScreen(),
   ];
 
   /// App-layer label map for screen-context capture. ST nav is an [IndexedStack] of
   /// tabs (not Navigator routes), so the shell feeds the current tab label to the
   /// generic [CurrentScreenTracker]; the harness stays app-agnostic.
-  static const _tabLabels = <String>['Dashboard', 'Inventory', 'Scan'];
+  static const _tabLabels = <String>[
+    'Dashboard',
+    'Inventory',
+    'Work Orders',
+    'Customers',
+  ];
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -39,6 +47,15 @@ class AppShell extends ConsumerWidget {
       appBar: AppBar(
         titleSpacing: 16,
         title: const _StockTrackBrand(),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.qr_code_scanner),
+            tooltip: 'Scan',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const ScanScreen()),
+            ),
+          ),
+        ],
       ),
       body: IndexedStack(index: index, children: _tabs),
       bottomNavigationBar: Column(
@@ -61,9 +78,14 @@ class AppShell extends ConsumerWidget {
                 label: 'Inventory',
               ),
               NavigationDestination(
-                icon: Icon(Icons.qr_code_scanner),
-                selectedIcon: Icon(Icons.qr_code_scanner),
-                label: 'Scan',
+                icon: Icon(Icons.assignment_outlined),
+                selectedIcon: Icon(Icons.assignment),
+                label: 'Work Orders',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.people_outline),
+                selectedIcon: Icon(Icons.people),
+                label: 'Customers',
               ),
             ],
           ),
