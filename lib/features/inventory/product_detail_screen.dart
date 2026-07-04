@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
@@ -7,6 +9,7 @@ import '../../core/utils/stock_status.dart';
 import '../../core/widgets/status_badge.dart';
 import '../../core/widgets/stock_level_bar.dart';
 import '../../data/models/product.dart';
+import '../../data/providers/inventory_providers.dart';
 import '../../data/providers/repository_providers.dart';
 
 /// Product detail / create / edit screen.
@@ -51,6 +54,7 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
 
   bool _saving = false;
   XFile? _pickedPhoto;
+  bool _photoExpanded = false;
 
   @override
   void dispose() {
@@ -264,27 +268,52 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
 
             if (_pickedPhoto != null) ...[
               const SizedBox(height: 8),
-              Row(
-                children: [
-                  const Icon(Icons.check_circle_outline,
-                      size: 14, color: AppColors.inStockGreen),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      _pickedPhoto!.name,
-                      style: const TextStyle(
-                          color: AppColors.textFaint, fontSize: 12),
-                      overflow: TextOverflow.ellipsis,
-                    ),
+              GestureDetector(
+                onTap: () => setState(() => _photoExpanded = !_photoExpanded),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeInOut,
+                  height: _photoExpanded ? 260 : 90,
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(_photoExpanded ? 14 : 10),
+                    border: Border.all(color: AppColors.surfaceBorder),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.close,
-                        size: 16, color: AppColors.textFaint),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                    onPressed: () => setState(() => _pickedPhoto = null),
+                  clipBehavior: Clip.hardEdge,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Image.file(
+                        File(_pickedPhoto!.path),
+                        fit: BoxFit.cover,
+                      ),
+                      Positioned(
+                        top: 6,
+                        right: 6,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _PhotoChip(
+                              icon: _photoExpanded
+                                  ? Icons.unfold_less
+                                  : Icons.unfold_more,
+                              onTap: () => setState(
+                                  () => _photoExpanded = !_photoExpanded),
+                            ),
+                            const SizedBox(width: 6),
+                            _PhotoChip(
+                              icon: Icons.close,
+                              onTap: () => setState(() {
+                                _pickedPhoto = null;
+                                _photoExpanded = false;
+                              }),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ],
 
@@ -298,7 +327,7 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
                   style: const TextStyle(color: AppColors.textFaint, fontSize: 12),
                 ),
               ),
-            _FormField(label: 'Name', controller: _nameController),
+            _NameAutocomplete(controller: _nameController),
             const SizedBox(height: 12),
             _FormField(
               label: 'Description',
@@ -358,6 +387,93 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+// Small overlay chip used on the photo thumbnail for collapse/close actions.
+class _PhotoChip extends StatelessWidget {
+  const _PhotoChip({required this.icon, required this.onTap});
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(5),
+        decoration: BoxDecoration(
+          color: Colors.black54,
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Icon(icon, size: 16, color: Colors.white),
+      ),
+    );
+  }
+}
+
+// Name field with autocomplete dropdown populated from existing inventory.
+class _NameAutocomplete extends ConsumerWidget {
+  const _NameAutocomplete({required this.controller});
+  final TextEditingController controller;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final existingNames = ref
+        .watch(productsProvider)
+        .valueOrNull
+        ?.map((p) => p.name)
+        .toSet()
+        .toList() ?? const [];
+
+    return Autocomplete<String>(
+      initialValue: TextEditingValue(text: controller.text),
+      optionsBuilder: (value) {
+        if (value.text.isEmpty) return existingNames;
+        return existingNames.where(
+          (n) => n.toLowerCase().contains(value.text.toLowerCase()),
+        );
+      },
+      onSelected: (value) => controller.text = value,
+      fieldViewBuilder: (ctx, fieldController, focusNode, onSubmitted) {
+        // Keep our controller in sync with the autocomplete's internal one.
+        fieldController.addListener(() {
+          if (controller.text != fieldController.text) {
+            controller.text = fieldController.text;
+          }
+        });
+        return TextField(
+          controller: fieldController,
+          focusNode: focusNode,
+          style: const TextStyle(color: AppColors.textPrimary),
+          decoration: const InputDecoration(labelText: 'Name'),
+        );
+      },
+      optionsViewBuilder: (ctx, onSelected, options) => Align(
+        alignment: Alignment.topLeft,
+        child: Material(
+          elevation: 4,
+          borderRadius: BorderRadius.circular(10),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 200),
+            child: ListView.builder(
+              padding: EdgeInsets.zero,
+              shrinkWrap: true,
+              itemCount: options.length,
+              itemBuilder: (_, i) {
+                final name = options.elementAt(i);
+                return ListTile(
+                  dense: true,
+                  title: Text(name,
+                      style: const TextStyle(color: AppColors.textPrimary)),
+                  onTap: () => onSelected(name),
+                );
+              },
+            ),
+          ),
+        ),
       ),
     );
   }
