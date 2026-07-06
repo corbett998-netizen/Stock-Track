@@ -70,8 +70,8 @@ class _HarnessFabClusterState extends ConsumerState<HarnessFabCluster> {
 
   /// Collapsed/expanded toggle — collapsed shows only the drag-handle tab; expanded
   /// shows the full tool column below it. Double-tap the grip to toggle. Not
-  /// persisted (unlike position): every fresh mount starts expanded.
-  bool _expanded = true;
+  /// persisted (unlike position): every fresh mount starts collapsed.
+  bool _expanded = false;
 
   @override
   void initState() {
