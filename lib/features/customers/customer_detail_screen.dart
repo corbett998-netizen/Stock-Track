@@ -37,6 +37,7 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
       TextEditingController(text: widget.customer.notes ?? '');
 
   bool _saving = false;
+  final Set<String> _expandedIds = {};
 
   @override
   void dispose() {
@@ -249,6 +250,14 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
               saving: _saving,
               onAddUnit: () => _addUnitPhoto(customer),
               onReorder: (o, n) => _reorder(customer, o, n),
+              expandedIds: _expandedIds,
+              onToggleExpand: (id) => setState(() {
+                if (_expandedIds.contains(id)) {
+                  _expandedIds.remove(id);
+                } else {
+                  _expandedIds.add(id);
+                }
+              }),
             ),
     );
   }
@@ -262,12 +271,16 @@ class _DetailView extends StatelessWidget {
     required this.saving,
     required this.onAddUnit,
     required this.onReorder,
+    required this.expandedIds,
+    required this.onToggleExpand,
   });
 
   final Customer customer;
   final bool saving;
   final VoidCallback onAddUnit;
   final void Function(int, int) onReorder;
+  final Set<String> expandedIds;
+  final void Function(String id) onToggleExpand;
 
   @override
   Widget build(BuildContext context) {
@@ -395,7 +408,11 @@ class _DetailView extends StatelessWidget {
                   index: index,
                   child: Padding(
                     padding: const EdgeInsets.only(bottom: 12),
-                    child: _UnitCard(unit: unit),
+                    child: _UnitCard(
+                      unit: unit,
+                      expanded: expandedIds.contains(unit.id),
+                      onToggle: () => onToggleExpand(unit.id),
+                    ),
                   ),
                 );
               },
@@ -447,16 +464,16 @@ class _DetailView extends StatelessWidget {
 
 // ── Unit card ─────────────────────────────────────────────────────────────────
 
-class _UnitCard extends StatefulWidget {
-  const _UnitCard({required this.unit});
+class _UnitCard extends StatelessWidget {
+  const _UnitCard({
+    required this.unit,
+    required this.expanded,
+    required this.onToggle,
+  });
+
   final InstalledUnit unit;
-
-  @override
-  State<_UnitCard> createState() => _UnitCardState();
-}
-
-class _UnitCardState extends State<_UnitCard> {
-  bool _expanded = false;
+  final bool expanded;
+  final VoidCallback onToggle;
 
   String _formatDate(DateTime dt) {
     const months = [
@@ -468,7 +485,6 @@ class _UnitCardState extends State<_UnitCard> {
 
   @override
   Widget build(BuildContext context) {
-    final unit = widget.unit;
     final dateLabel = _formatDate(unit.installedAt);
 
     return Container(
@@ -505,11 +521,11 @@ class _UnitCardState extends State<_UnitCard> {
           // Photo.
           if (unit.photoUrl != null)
             GestureDetector(
-              onTap: () => setState(() => _expanded = !_expanded),
+              onTap: onToggle,
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 220),
                 curve: Curves.easeInOut,
-                height: _expanded ? 280 : 120,
+                height: expanded ? 280 : 120,
                 width: double.infinity,
                 child: Stack(
                   fit: StackFit.expand,
@@ -519,8 +535,7 @@ class _UnitCardState extends State<_UnitCard> {
                       top: 8,
                       right: 8,
                       child: GestureDetector(
-                        onTap: () =>
-                            setState(() => _expanded = !_expanded),
+                        onTap: onToggle,
                         child: Container(
                           padding: const EdgeInsets.all(5),
                           decoration: BoxDecoration(
@@ -528,7 +543,7 @@ class _UnitCardState extends State<_UnitCard> {
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Icon(
-                            _expanded
+                            expanded
                                 ? Icons.unfold_less
                                 : Icons.unfold_more,
                             size: 16,
@@ -553,7 +568,7 @@ class _UnitCardState extends State<_UnitCard> {
           ),
 
           // Expanded details.
-          if (_expanded) ...[
+          if (expanded) ...[
             const Divider(height: 20, indent: 14, endIndent: 14),
             _DetailRow('Qty installed', '${unit.quantityInstalled}'),
             if (unit.serialNumber != null)
