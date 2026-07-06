@@ -24,6 +24,11 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>tel</string>
+		<string>sms</string>
+	</array>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Add a photo to this inventory item.</string>
 	<key>NSCameraUsageDescription</key>

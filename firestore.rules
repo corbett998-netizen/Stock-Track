@@ -59,6 +59,11 @@ service cloud.firestore {
       allow read: if false;
     }
 
+    // --- Customers: customers/{customer} ---
+    match /customers/{customer} {
+      allow read, write: if signedIn();
+    }
+
     // --- Inventory products: products/{product} ---
     // Any signed-in user (anonymous or otherwise) can read and write products.
     // This is a single-owner app — the only person signing in is Brandon.

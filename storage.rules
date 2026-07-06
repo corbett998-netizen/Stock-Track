@@ -27,8 +27,13 @@ service firebase.storage {
       allow read, write: if request.auth != null && request.auth.uid == uid;
     }
 
-    // Inventory product photos — any signed-in user can read/write.
+    // Inventory product photos.
     match /inventory/{productId}/{fileName} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Customer installed-unit photos.
+    match /customers/{customerId}/units/{fileName} {
       allow read, write: if request.auth != null;
     }
 
