@@ -47,6 +47,8 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
       TextEditingController(text: widget.product.category);
   late final _locationController =
       TextEditingController(text: widget.product.location);
+  late final _serialController =
+      TextEditingController(text: widget.product.serial ?? '');
   late final _unitController = TextEditingController(text: widget.product.unit);
   late final _minStockController =
       TextEditingController(text: widget.product.minStock.toString());
@@ -63,6 +65,7 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
     _descriptionController.dispose();
     _categoryController.dispose();
     _locationController.dispose();
+    _serialController.dispose();
     _unitController.dispose();
     _minStockController.dispose();
     _quantityController.dispose();
@@ -117,11 +120,13 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
           file: File(_pickedPhoto!.path),
         );
       }
+      final serial = _serialController.text.trim();
       await repo.addProduct(
         widget.product.copyWith(
           id: tempId,
           name: _nameController.text.trim(),
           description: description.isEmpty ? null : description,
+          serial: serial.isEmpty ? null : serial,
           category: _categoryController.text.trim(),
           location: _locationController.text.trim(),
           unit: _unitController.text.trim(),
@@ -140,9 +145,11 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
         );
       }
       // Persist full updated product.
+      final serial = _serialController.text.trim();
       final updated = widget.product.copyWith(
         name: _nameController.text.trim(),
         description: description.isEmpty ? null : description,
+        serial: serial.isEmpty ? null : serial,
         category: _categoryController.text.trim(),
         location: _locationController.text.trim(),
         unit: _unitController.text.trim(),
@@ -256,6 +263,9 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
               title: 'Product Details',
               rows: [
                 _DetailRow('Barcode', widget.product.barcode),
+                if (widget.product.serial != null &&
+                    widget.product.serial!.isNotEmpty)
+                  _DetailRow('Serial number', widget.product.serial!),
                 _DetailRow('Category', widget.product.category),
                 _DetailRow('Location', widget.product.location),
                 _DetailRow('Unit', widget.product.unit),
@@ -377,6 +387,11 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
                 ),
               ),
             _NameAutocomplete(controller: _nameController),
+            const SizedBox(height: 12),
+            _FormField(
+              label: 'Serial number (optional)',
+              controller: _serialController,
+            ),
             const SizedBox(height: 12),
             _FormField(
               label: 'Description',

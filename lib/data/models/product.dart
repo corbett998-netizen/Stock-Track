@@ -57,6 +57,7 @@ class Product {
         'barcode': barcode,
         'sku': sku,
         if (serial != null) 'serial': serial,
+        if (serial != null) 'serial': serial,
         if (description != null) 'description': description,
         if (photoUrl != null) 'photoUrl': photoUrl,
         'category': category,
