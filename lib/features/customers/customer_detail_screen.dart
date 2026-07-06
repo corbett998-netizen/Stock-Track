@@ -257,6 +257,7 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
               isNew: widget.isNew,
               onSave: _save,
               onCancel: () => setState(() => _editing = false),
+              customer: customer,
             )
           : _DetailView(
               customer: customer,
@@ -858,6 +859,7 @@ class _EditForm extends StatelessWidget {
     required this.isNew,
     required this.onSave,
     required this.onCancel,
+    required this.customer,
   });
 
   final TextEditingController nameController;
@@ -868,6 +870,7 @@ class _EditForm extends StatelessWidget {
   final bool isNew;
   final VoidCallback onSave;
   final VoidCallback onCancel;
+  final Customer customer;
 
   @override
   Widget build(BuildContext context) {
@@ -883,7 +886,12 @@ class _EditForm extends StatelessWidget {
             controller: phoneController,
             keyboardType: TextInputType.phone),
         const SizedBox(height: 12),
-        _Field(label: 'Notes', controller: notesController, maxLines: 5),
+        // Same notes widget as detail view — updates the controller so
+        // the parent Save picks it up with the rest of the fields.
+        _NotesBox(
+          customer: customer.copyWith(notes: notesController.text),
+          onSave: (text) async => notesController.text = text,
+        ),
         const SizedBox(height: 24),
         Row(
           children: [
