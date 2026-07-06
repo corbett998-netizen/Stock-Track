@@ -400,7 +400,7 @@ class _UnitCardState extends State<_UnitCard> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Photo.
-          if (unit.photoUrl != null)
+          if (unit.photoUrl != null) ...[
             GestureDetector(
               onTap: () => setState(() => _expanded = !_expanded),
               child: AnimatedContainer(
@@ -414,24 +414,6 @@ class _UnitCardState extends State<_UnitCard> {
                     Image.network(
                       unit.photoUrl!,
                       fit: BoxFit.cover,
-                    ),
-                    // Date badge across the bottom.
-                    Positioned(
-                      bottom: 0,
-                      left: 0,
-                      right: 0,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            vertical: 5, horizontal: 10),
-                        color: Colors.black54,
-                        child: Text(
-                          dateLabel,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ),
                     ),
                     // Expand/collapse chip.
                     Positioned(
@@ -460,6 +442,21 @@ class _UnitCardState extends State<_UnitCard> {
                 ),
               ),
             ),
+            // Date clearly below the photo.
+            Container(
+              width: double.infinity,
+              padding:
+                  const EdgeInsets.symmetric(vertical: 6, horizontal: 14),
+              color: AppColors.surfaceAlt,
+              child: Text(
+                dateLabel,
+                style: const TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ],
 
           // Equipment name row.
           Padding(
