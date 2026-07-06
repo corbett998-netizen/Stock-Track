@@ -401,18 +401,27 @@ class _DetailView extends StatelessWidget {
             sliver: SliverReorderableList(
               itemCount: customer.installedUnits.length,
               onReorder: onReorder,
+              proxyDecorator: (child, index, animation) => Material(
+                elevation: 0,
+                color: Colors.transparent,
+                child: ColorFiltered(
+                  colorFilter: ColorFilter.mode(
+                    Colors.black.withValues(alpha: 0.35),
+                    BlendMode.darken,
+                  ),
+                  child: child,
+                ),
+              ),
               itemBuilder: (context, index) {
                 final unit = customer.installedUnits[index];
-                return ReorderableDragStartListener(
+                return Padding(
                   key: ValueKey(unit.id),
-                  index: index,
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: _UnitCard(
-                      unit: unit,
-                      expanded: expandedIds.contains(unit.id),
-                      onToggle: () => onToggleExpand(unit.id),
-                    ),
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: _UnitCard(
+                    unit: unit,
+                    index: index,
+                    expanded: expandedIds.contains(unit.id),
+                    onToggle: () => onToggleExpand(unit.id),
                   ),
                 );
               },
@@ -467,11 +476,13 @@ class _DetailView extends StatelessWidget {
 class _UnitCard extends StatelessWidget {
   const _UnitCard({
     required this.unit,
+    required this.index,
     required this.expanded,
     required this.onToggle,
   });
 
   final InstalledUnit unit;
+  final int index;
   final bool expanded;
   final VoidCallback onToggle;
 
@@ -497,7 +508,7 @@ class _UnitCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Drag handle + name row.
+          // Name + drag handle row.
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 10, 8, 6),
             child: Row(
@@ -512,8 +523,17 @@ class _UnitCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                const Icon(Icons.drag_handle,
-                    color: AppColors.textFaint, size: 20),
+                ReorderableDragStartListener(
+                  index: index,
+                  child: Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Icon(
+                      Icons.drag_handle,
+                      color: AppColors.textFaint,
+                      size: 22,
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
