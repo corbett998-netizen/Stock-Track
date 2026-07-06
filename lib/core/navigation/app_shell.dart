@@ -104,14 +104,14 @@ class _StockTrackBrand extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-          width: 34,
-          height: 34,
-          decoration: BoxDecoration(
-            color: AppColors.primaryBlue,
-            borderRadius: BorderRadius.circular(8),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Image.asset(
+            'assets/images/easy_hvac_logo.png',
+            width: 34,
+            height: 34,
+            fit: BoxFit.cover,
           ),
-          child: const Icon(Icons.warehouse_outlined, size: 20, color: Colors.white),
         ),
         const SizedBox(width: 10),
         const Column(
