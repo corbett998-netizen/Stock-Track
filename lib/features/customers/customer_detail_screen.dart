@@ -190,6 +190,19 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
     );
   }
 
+  Future<void> _saveNotes(String notes) async {
+    final repo = ref.read(customerRepositoryProvider);
+    final live = ref
+            .read(customersProvider)
+            .valueOrNull
+            ?.where((c) => c.id == widget.customer.id)
+            .firstOrNull ??
+        widget.customer;
+    await repo.updateCustomer(
+      live.copyWith(notes: notes.trim().isEmpty ? null : notes.trim()),
+    );
+  }
+
   Future<void> _reorder(
       Customer customer, int oldIndex, int newIndex) async {
     final units = List<InstalledUnit>.from(customer.installedUnits);
@@ -258,6 +271,7 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                   _expandedIds.add(id);
                 }
               }),
+              onSaveNotes: _saveNotes,
             ),
     );
   }
@@ -273,6 +287,7 @@ class _DetailView extends StatelessWidget {
     required this.onReorder,
     required this.expandedIds,
     required this.onToggleExpand,
+    required this.onSaveNotes,
   });
 
   final Customer customer;
@@ -281,6 +296,7 @@ class _DetailView extends StatelessWidget {
   final void Function(int, int) onReorder;
   final Set<String> expandedIds;
   final void Function(String id) onToggleExpand;
+  final Future<void> Function(String notes) onSaveNotes;
 
   @override
   Widget build(BuildContext context) {
@@ -433,35 +449,9 @@ class _DetailView extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
           sliver: SliverList(
             delegate: SliverChildListDelegate([
-              const Text(
-                'Notes',
-                style: TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Container(
-                width: double.infinity,
-                constraints: const BoxConstraints(minHeight: 120),
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: AppColors.surfaceBorder),
-                ),
-                child: Text(
-                  customer.notes?.isNotEmpty == true
-                      ? customer.notes!
-                      : 'No notes.',
-                  style: TextStyle(
-                    color: customer.notes?.isNotEmpty == true
-                        ? AppColors.textPrimary
-                        : AppColors.textFaint,
-                    fontSize: 14,
-                  ),
-                ),
+              _NotesBox(
+                customer: customer,
+                onSave: onSaveNotes,
               ),
             ]),
           ),
@@ -634,6 +624,180 @@ class _DetailRow extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ── Notes box — tap to expand, own edit pencil ───────────────────────────────
+
+class _NotesBox extends StatefulWidget {
+  const _NotesBox({required this.customer, required this.onSave});
+  final Customer customer;
+  final Future<void> Function(String) onSave;
+
+  @override
+  State<_NotesBox> createState() => _NotesBoxState();
+}
+
+class _NotesBoxState extends State<_NotesBox> {
+  bool _expanded = false;
+  bool _editing = false;
+  bool _saving = false;
+  late final _controller =
+      TextEditingController(text: widget.customer.notes ?? '');
+
+  @override
+  void didUpdateWidget(_NotesBox old) {
+    super.didUpdateWidget(old);
+    if (!_editing &&
+        old.customer.notes != widget.customer.notes) {
+      _controller.text = widget.customer.notes ?? '';
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    await widget.onSave(_controller.text);
+    if (!mounted) return;
+    setState(() {
+      _saving = false;
+      _editing = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasNotes = widget.customer.notes?.isNotEmpty == true;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Header row — always visible, tap to expand.
+        InkWell(
+          onTap: () => setState(() => _expanded = !_expanded),
+          borderRadius: BorderRadius.circular(10),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Row(
+              children: [
+                const Text(
+                  'Notes',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Icon(
+                  _expanded
+                      ? Icons.keyboard_arrow_up
+                      : Icons.keyboard_arrow_down,
+                  size: 18,
+                  color: AppColors.textFaint,
+                ),
+                const Spacer(),
+                if (_expanded && !_editing)
+                  IconButton(
+                    icon: const Icon(Icons.edit_outlined,
+                        size: 18, color: AppColors.textFaint),
+                    onPressed: () => setState(() => _editing = true),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 6),
+
+        // Collapsed preview — one line.
+        if (!_expanded)
+          Text(
+            hasNotes ? widget.customer.notes! : 'Tap to add notes…',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color:
+                  hasNotes ? AppColors.textSecondary : AppColors.textFaint,
+              fontSize: 13,
+            ),
+          ),
+
+        // Expanded content.
+        if (_expanded)
+          Container(
+            width: double.infinity,
+            constraints: const BoxConstraints(minHeight: 120),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.surfaceBorder),
+            ),
+            child: _editing
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      TextField(
+                        controller: _controller,
+                        maxLines: null,
+                        autofocus: true,
+                        style: const TextStyle(
+                            color: AppColors.textPrimary, fontSize: 14),
+                        decoration: const InputDecoration.collapsed(
+                            hintText: 'Add notes…'),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: FilledButton(
+                              onPressed: _saving
+                                  ? null
+                                  : () => setState(() => _editing = false),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: Colors.red,
+                                foregroundColor: Colors.white,
+                                minimumSize: const Size.fromHeight(40),
+                              ),
+                              child: const Text('Cancel'),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: FilledButton(
+                              onPressed: _saving ? null : _save,
+                              style: FilledButton.styleFrom(
+                                backgroundColor: AppColors.primaryBlue,
+                                foregroundColor: Colors.white,
+                                minimumSize: const Size.fromHeight(40),
+                              ),
+                              child:
+                                  Text(_saving ? 'Saving…' : 'Save'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  )
+                : Text(
+                    hasNotes ? widget.customer.notes! : 'No notes.',
+                    style: TextStyle(
+                      color: hasNotes
+                          ? AppColors.textPrimary
+                          : AppColors.textFaint,
+                      fontSize: 14,
+                    ),
+                  ),
+          ),
+      ],
     );
   }
 }
