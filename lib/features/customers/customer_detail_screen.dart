@@ -577,20 +577,31 @@ class _UnitCard extends StatelessWidget {
               ),
             ),
 
-          // Date — always visible below photo.
+          // Date + qty — always visible below photo.
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
-            child: Text(
-              dateLabel,
-              style: const TextStyle(
-                  color: AppColors.textFaint, fontSize: 12),
+            child: Row(
+              children: [
+                Text(
+                  dateLabel,
+                  style: const TextStyle(
+                      color: AppColors.textFaint, fontSize: 12),
+                ),
+                const Spacer(),
+                Text(
+                  'Qty: ${unit.quantityInstalled}',
+                  style: const TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600),
+                ),
+              ],
             ),
           ),
 
           // Expanded details.
           if (expanded) ...[
             const Divider(height: 20, indent: 14, endIndent: 14),
-            _DetailRow('Qty installed', '${unit.quantityInstalled}'),
             if (unit.serialNumber != null)
               _DetailRow('Serial number', unit.serialNumber!),
             if (unit.barcode != null)
