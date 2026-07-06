@@ -577,25 +577,13 @@ class _UnitCard extends StatelessWidget {
               ),
             ),
 
-          // Date + qty — always visible below photo.
+          // Date — always visible below photo.
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
-            child: Row(
-              children: [
-                Text(
-                  dateLabel,
-                  style: const TextStyle(
-                      color: AppColors.textFaint, fontSize: 12),
-                ),
-                const Spacer(),
-                Text(
-                  'Qty: ${unit.quantityInstalled}',
-                  style: const TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600),
-                ),
-              ],
+            child: Text(
+              dateLabel,
+              style: const TextStyle(
+                  color: AppColors.textFaint, fontSize: 12),
             ),
           ),
 
