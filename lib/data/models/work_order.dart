@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import 'quote.dart';
+
 /// Why a work order exists — the "Why" dropdown on the 5-W form.
 enum WorkOrderReason {
   newInstall('New install'),
@@ -92,6 +94,7 @@ class WorkOrder {
     this.scheduleNotes,
     // Why
     required this.reason,
+    this.quote,
   });
 
   final String id;
@@ -114,6 +117,9 @@ class WorkOrder {
   final String? scheduleNotes;
 
   final WorkOrderReason reason;
+
+  /// Customer-facing quote built from this order (one per order, editable).
+  final Quote? quote;
 
   factory WorkOrder.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
     final d = doc.data()!;
@@ -138,6 +144,9 @@ class WorkOrder {
       reason:
           WorkOrderReason.fromName(d['reason'] as String?) ??
               WorkOrderReason.newInstall,
+      quote: d['quote'] is Map<String, dynamic>
+          ? Quote.fromMap(d['quote'] as Map<String, dynamic>)
+          : null,
     );
   }
 
@@ -153,5 +162,6 @@ class WorkOrder {
         if (installDate != null) 'installDate': Timestamp.fromDate(installDate!),
         if (scheduleNotes != null) 'scheduleNotes': scheduleNotes,
         'reason': reason.name,
+        if (quote != null) 'quote': quote!.toMap(),
       };
 }

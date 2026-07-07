@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../models/quote.dart';
 import '../models/work_order.dart';
 
 class WorkOrderRepository {
@@ -29,5 +30,10 @@ class WorkOrderRepository {
 
   Future<void> deleteWorkOrder(String id) async {
     await _col.doc(id).delete();
+  }
+
+  /// Write (or overwrite) the quote embedded in a work order.
+  Future<void> saveQuote(String orderId, Quote quote) async {
+    await _col.doc(orderId).update({'quote': quote.toMap()});
   }
 }

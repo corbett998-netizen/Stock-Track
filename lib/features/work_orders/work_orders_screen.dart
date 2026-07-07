@@ -5,6 +5,7 @@ import '../../core/theme/app_colors.dart';
 import '../../data/models/work_order.dart';
 import '../../data/providers/work_order_providers.dart';
 import 'new_work_order_screen.dart';
+import 'work_order_detail_screen.dart';
 
 /// Work Orders tab — live list of orders (newest first) + "New" FAB.
 class WorkOrdersScreen extends ConsumerWidget {
@@ -98,7 +99,13 @@ class _WorkOrderCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(
+            builder: (_) => WorkOrderDetailScreen(orderId: order.id)),
+      ),
+      child: Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: AppColors.surface,
@@ -156,6 +163,7 @@ class _WorkOrderCard extends StatelessWidget {
             style: const TextStyle(color: AppColors.textFaint, fontSize: 12),
           ),
         ],
+      ),
       ),
     );
   }
