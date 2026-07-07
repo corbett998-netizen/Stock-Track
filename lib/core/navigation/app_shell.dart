@@ -120,7 +120,7 @@ class _StockTrackBrand extends StatelessWidget {
           const SizedBox(width: 8),
           Image.asset(
             'assets/images/easy_hvac_logo.png',
-            height: 34,
+            height: 46,
             fit: BoxFit.contain,
           ),
         ],

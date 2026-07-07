@@ -43,7 +43,21 @@ Future<void> shareQuotePdf(WorkOrder order) async {
           children: [
             pw.Image(easyHvacLogo, height: 52),
             pw.SizedBox(width: 16),
-            pw.Expanded(child: pw.SizedBox()),
+            pw.Expanded(
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text('Install and Service of HVAC Equipment',
+                      style: pw.TextStyle(
+                          fontSize: 9,
+                          fontWeight: pw.FontWeight.bold,
+                          color: navy)),
+                  pw.Text(
+                      'Furnaces • Tankless Water Heaters • AC • Heat Pumps & more',
+                      style: const pw.TextStyle(fontSize: 8, color: slate)),
+                ],
+              ),
+            ),
             pw.Image(tempstarLockup, height: 40),
           ],
         ),
@@ -79,6 +93,16 @@ Future<void> shareQuotePdf(WorkOrder order) async {
                 pw.Text('Easy HVAC',
                     style: pw.TextStyle(
                         fontSize: 13, fontWeight: pw.FontWeight.bold)),
+                pw.Text('2265 Petawawa Blvd. Pembroke, Ontario',
+                    style: const pw.TextStyle(fontSize: 10, color: slate)),
+                pw.Text('24-hour: 613.585.8615',
+                    style: const pw.TextStyle(fontSize: 10, color: slate)),
+                pw.Text('Emergency Service: 613.631.1399',
+                    style: const pw.TextStyle(fontSize: 10, color: slate)),
+                pw.Text('easyhvacservices@hotmail.com',
+                    style: const pw.TextStyle(fontSize: 10, color: slate)),
+                pw.Text('H.S.T.# 721074524RT0001',
+                    style: const pw.TextStyle(fontSize: 10, color: slate)),
                 pw.Text('${order.installerName} — Licence # ${order.installerLicense}',
                     style: const pw.TextStyle(fontSize: 10, color: slate)),
                 pw.Text('Tempstar Elite Dealer',

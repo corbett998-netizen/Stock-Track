@@ -6,6 +6,7 @@ import '../../../core/widgets/section_panel.dart';
 import '../../../data/models/product.dart';
 import '../../../data/models/work_order.dart';
 import '../../../data/providers/inventory_providers.dart';
+import '../../../data/providers/repository_providers.dart';
 import '../../../data/providers/work_order_providers.dart';
 
 /// "WHAT" section of the New-Work-Order form — the equipment required,
@@ -74,6 +75,42 @@ class _WhatSectionState extends ConsumerState<WhatSection> {
     setState(() {});
   }
 
+  bool _quickAdding = false;
+
+  /// The typed item isn't stocked — save it to inventory at quantity 0 (shows
+  /// as "Out of stock" on the Inventory tab so it lands on the order list),
+  /// then put it on this work order.
+  Future<void> _onQuickAdd(String name) async {
+    if (_quickAdding) return;
+    setState(() => _quickAdding = true);
+    try {
+      final saved = await ref.read(inventoryRepositoryProvider).addProduct(
+            Product(
+              id: 'p_${DateTime.now().microsecondsSinceEpoch}',
+              name: name,
+              barcode: '',
+              sku: '',
+              category: 'Uncategorized',
+              location: '',
+              quantity: 0,
+              unit: 'units',
+              minStock: 1,
+            ),
+          );
+      ref.read(workOrderDraftProvider.notifier).addItem(saved);
+      _searchController.clear();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('"$name" added to inventory as out of stock'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _quickAdding = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final draft = ref.watch(workOrderDraftProvider);
@@ -124,7 +161,7 @@ class _WhatSectionState extends ConsumerState<WhatSection> {
             isDense: true,
           ),
         ),
-        if (query.trim().isNotEmpty && suggestions.isNotEmpty) ...[
+        if (query.trim().isNotEmpty) ...[
           const SizedBox(height: 6),
           Container(
             decoration: BoxDecoration(
@@ -141,6 +178,14 @@ class _WhatSectionState extends ConsumerState<WhatSection> {
                     onTap: addedIds.contains(product.id)
                         ? null
                         : () => _onSuggestionTap(product),
+                  ),
+                // Not stocked (or not the exact item) — offer to create it.
+                if (!suggestions.any((p) =>
+                    p.name.toLowerCase() == query.trim().toLowerCase()))
+                  _QuickAddRow(
+                    name: query.trim(),
+                    busy: _quickAdding,
+                    onTap: () => _onQuickAdd(query.trim()),
                   ),
               ],
             ),
@@ -234,6 +279,61 @@ class _SelectedItemRow extends StatelessWidget {
             tooltip: 'Remove',
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Bottom row of the suggestion list: save the typed name as a brand-new
+/// inventory item (quantity 0 → "Out of stock") and add it to the order.
+class _QuickAddRow extends StatelessWidget {
+  const _QuickAddRow({
+    required this.name,
+    required this.busy,
+    required this.onTap,
+  });
+
+  final String name;
+  final bool busy;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: busy ? null : onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        child: Row(
+          children: [
+            if (busy)
+              const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else
+              const Icon(Icons.add_circle_outline,
+                  size: 16, color: AppColors.primaryBlue),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Add "$name" as new item',
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: AppColors.primaryBlue,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Text(
+              'saves to inventory · out of stock',
+              style: TextStyle(color: AppColors.textFaint, fontSize: 11),
+            ),
+          ],
+        ),
       ),
     );
   }
