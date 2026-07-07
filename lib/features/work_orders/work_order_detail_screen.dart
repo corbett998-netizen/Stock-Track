@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/section_panel.dart';
 import '../../data/providers/work_order_providers.dart';
+import 'new_work_order_screen.dart';
 import 'quote_editor_screen.dart';
 import 'quote_pdf.dart';
 
@@ -40,7 +41,19 @@ class WorkOrderDetailScreen extends ConsumerWidget {
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Work Order')),
+      appBar: AppBar(
+        title: const Text('Work Order'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.edit_outlined),
+            tooltip: 'Edit work order',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                  builder: (_) => NewWorkOrderScreen(existing: order)),
+            ),
+          ),
+        ],
+      ),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),

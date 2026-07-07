@@ -66,6 +66,27 @@ class WorkOrderDraftNotifier extends StateNotifier<WorkOrderDraft> {
 
   void setInstaller(Installer? installer) => state = _copy(installer: installer);
 
+  /// Seed the draft from an existing order (the edit flow). Must run before
+  /// the section widgets build — they read the draft once for their
+  /// controllers. [customer] re-attaches the customer profile when one was
+  /// linked at create time.
+  void hydrateFromOrder(WorkOrder order,
+      {Customer? customer, required List<Installer> roster}) {
+    state = WorkOrderDraft(
+      installer: roster
+              .where((i) => i.license == order.installerLicense)
+              .firstOrNull ??
+          Installer(name: order.installerName, license: order.installerLicense),
+      customer: customer,
+      address: order.address,
+      items: order.items,
+      equipmentNotes: order.equipmentNotes ?? '',
+      installDate: order.installDate,
+      scheduleNotes: order.scheduleNotes ?? '',
+      reason: order.reason,
+    );
+  }
+
   /// An existing customer was picked from the typeahead — adopt their address.
   void selectCustomer(Customer customer) =>
       state = _copy(customer: customer, address: customer.address);
