@@ -166,10 +166,25 @@ class _QuoteEditorScreenState extends ConsumerState<QuoteEditorScreen> {
     // Recomputed every rebuild — onChanged on the fields triggers setState.
     final quote = _buildQuote();
 
+    // The bottom Save/Share bar sits under the keyboard, so both escape
+    // hatches matter: drag-to-dismiss on the list + an explicit hide button.
+    final keyboardOpen = MediaQuery.of(context).viewInsets.bottom > 0;
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Quote')),
+      appBar: AppBar(
+        title: const Text('Quote'),
+        actions: [
+          if (keyboardOpen)
+            IconButton(
+              icon: const Icon(Icons.keyboard_hide_outlined),
+              tooltip: 'Hide keyboard',
+              onPressed: () => FocusManager.instance.primaryFocus?.unfocus(),
+            ),
+        ],
+      ),
       body: SafeArea(
         child: ListView(
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
           children: [
             Text(
