@@ -95,45 +95,36 @@ class AppShell extends ConsumerWidget {
   }
 }
 
-/// The StockTrack brand lockup (blue tile + name + "Warehouse"), as in the refs.
+/// The brand tile: Easy HVAC mark + Tempstar Elite Dealer lockup. Sits on a
+/// white rounded tile — the lockup's tagline is black, unreadable straight on
+/// the navy app bar.
 class _StockTrackBrand extends StatelessWidget {
   const _StockTrackBrand();
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: Image.asset(
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Image.asset(
             'assets/images/easy_hvac_logo.png',
-            width: 34,
             height: 34,
-            fit: BoxFit.cover,
+            fit: BoxFit.contain,
           ),
-        ),
-        const SizedBox(width: 10),
-        const Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'StockTrack',
-              style: TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                height: 1.1,
-              ),
-            ),
-            Text(
-              'Warehouse',
-              style: TextStyle(color: AppColors.textSecondary, fontSize: 11, height: 1.1),
-            ),
-          ],
-        ),
-      ],
+          const SizedBox(width: 8),
+          Image.asset(
+            'assets/images/tempstar_elite_dealer.png',
+            height: 30,
+            fit: BoxFit.contain,
+          ),
+        ],
+      ),
     );
   }
 }
