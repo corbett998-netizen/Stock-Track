@@ -113,14 +113,14 @@ class _StockTrackBrand extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Image.asset(
-            'assets/images/easy_hvac_logo.png',
-            height: 34,
+            'assets/images/tempstar_elite_dealer.png',
+            height: 30,
             fit: BoxFit.contain,
           ),
           const SizedBox(width: 8),
           Image.asset(
-            'assets/images/tempstar_elite_dealer.png',
-            height: 30,
+            'assets/images/easy_hvac_logo.png',
+            height: 34,
             fit: BoxFit.contain,
           ),
         ],
