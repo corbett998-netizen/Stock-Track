@@ -32,8 +32,33 @@ class WorkOrderRepository {
     await _col.doc(id).delete();
   }
 
-  /// Write (or overwrite) the quote embedded in a work order.
-  Future<void> saveQuote(String orderId, Quote quote) async {
-    await _col.doc(orderId).update({'quote': quote.toMap()});
+  /// Write (or overwrite) the quote embedded in a work order. The first save
+  /// of an order's quote assigns the next sequential quote number (the red
+  /// counter printed on the PDF); later saves keep the number it was issued.
+  /// Returns the quote as persisted, number included.
+  Future<Quote> saveQuote(String orderId, Quote quote) async {
+    var numbered = quote;
+    if (numbered.number == null) {
+      final existing = (await _col.doc(orderId).get()).data()?['quote'];
+      final prior = existing is Map<String, dynamic>
+          ? (existing['number'] as num?)?.toInt()
+          : null;
+      numbered = quote.copyWith(number: prior ?? await _nextQuoteNumber());
+    }
+    await _col.doc(orderId).update({'quote': numbered.toMap()});
+    return numbered;
+  }
+
+  /// Monotonic counter in a meta doc INSIDE workOrders — covered by the
+  /// existing security rules, and invisible to the work-order list because
+  /// the orderBy(createdAt) query skips docs without a createdAt field.
+  Future<int> _nextQuoteNumber() async {
+    final ref = _col.doc('_quoteCounter');
+    return FirebaseFirestore.instance.runTransaction((tx) async {
+      final snap = await tx.get(ref);
+      final next = ((snap.data()?['last'] as num?)?.toInt() ?? 0) + 1;
+      tx.set(ref, {'last': next});
+      return next;
+    });
   }
 }

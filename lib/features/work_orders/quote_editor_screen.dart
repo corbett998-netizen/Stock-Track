@@ -91,40 +91,45 @@ class _QuoteEditorScreenState extends ConsumerState<QuoteEditorScreen> {
             .toList(),
         notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
         updatedAt: DateTime.now(),
+        // Keep the number this quote was issued with; the repository assigns
+        // one on first save.
+        number: widget.order.quote?.number,
       );
 
-  Future<bool> _save() async {
+  /// Returns the quote as persisted (with its assigned number), or null if
+  /// the save failed or the quote was empty.
+  Future<Quote?> _save() async {
     final quote = _buildQuote();
     if (quote.lines.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Add at least one line to the quote.')),
       );
-      return false;
+      return null;
     }
     setState(() => _saving = true);
     try {
-      await ref
+      return await ref
           .read(workOrderRepositoryProvider)
           .saveQuote(widget.order.id, quote);
-      return true;
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Could not save quote: $e')),
         );
       }
-      return false;
+      return null;
     } finally {
       if (mounted) setState(() => _saving = false);
     }
   }
 
   Future<void> _saveAndClose() async {
-    if (await _save() && mounted) Navigator.of(context).pop();
+    if (await _save() != null && mounted) Navigator.of(context).pop();
   }
 
   Future<void> _saveAndShare() async {
-    if (!await _save()) return;
+    final saved = await _save();
+    if (saved == null) return;
     final order = WorkOrder(
       id: widget.order.id,
       installerName: widget.order.installerName,
@@ -138,7 +143,7 @@ class _QuoteEditorScreenState extends ConsumerState<QuoteEditorScreen> {
       installDate: widget.order.installDate,
       scheduleNotes: widget.order.scheduleNotes,
       reason: widget.order.reason,
-      quote: _buildQuote(),
+      quote: saved,
     );
     await shareQuotePdf(order);
   }

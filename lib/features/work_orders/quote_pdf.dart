@@ -30,12 +30,32 @@ Future<void> shareQuotePdf(WorkOrder order) async {
   const navy = PdfColor.fromInt(0xFF0A2A5E);
   const slate = PdfColor.fromInt(0xFF64748B);
   const hairline = PdfColor.fromInt(0xFFCBD5E1);
+  const counterRed = PdfColor.fromInt(0xFFC62828);
 
   final doc = pw.Document();
   doc.addPage(
     pw.MultiPage(
       pageFormat: PdfPageFormat.letter,
       margin: const pw.EdgeInsets.fromLTRB(48, 40, 48, 48),
+      // Pinned to the bottom of every page: validity note left, quote number
+      // right (the red counter, like the paper invoice pad).
+      footer: (ctx) => pw.Row(
+        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: pw.CrossAxisAlignment.end,
+        children: [
+          pw.Text(
+            'This quote is valid for 30 days. Thank you for choosing Easy HVAC.',
+            style: const pw.TextStyle(fontSize: 9, color: slate),
+          ),
+          pw.Text(
+            'No. ${(quote.number ?? 1).toString().padLeft(4, '0')}',
+            style: pw.TextStyle(
+                fontSize: 13,
+                fontWeight: pw.FontWeight.bold,
+                color: counterRed),
+          ),
+        ],
+      ),
       build: (ctx) => [
         // ── Letterhead ──
         pw.Row(
@@ -217,11 +237,6 @@ Future<void> shareQuotePdf(WorkOrder order) async {
               style: const pw.TextStyle(fontSize: 10, color: slate)),
         ],
 
-        pw.SizedBox(height: 24),
-        pw.Text(
-          'This quote is valid for 30 days. Thank you for choosing Easy HVAC.',
-          style: const pw.TextStyle(fontSize: 9, color: slate),
-        ),
       ],
     ),
   );

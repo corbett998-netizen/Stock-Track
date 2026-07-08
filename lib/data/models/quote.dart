@@ -33,9 +33,15 @@ class Quote {
     this.taxRate = 0.13,
     this.notes,
     required this.updatedAt,
+    this.number,
   });
 
   final List<QuoteLine> lines;
+
+  /// Sequential quote number (the red counter on the PDF, printed as 0001).
+  /// Assigned once by the repository on first save and never changed after,
+  /// so a re-shared PDF always carries the same number.
+  final int? number;
 
   /// 13% HST. Persisted per quote so historical quotes keep the rate they
   /// were issued with if the default ever changes.
@@ -56,6 +62,7 @@ class Quote {
         updatedAt: m['updatedAt'] is int
             ? DateTime.fromMillisecondsSinceEpoch(m['updatedAt'] as int)
             : DateTime.now(),
+        number: (m['number'] as num?)?.toInt(),
       );
 
   Map<String, dynamic> toMap() => {
@@ -63,5 +70,14 @@ class Quote {
         'taxRate': taxRate,
         if (notes != null) 'notes': notes,
         'updatedAt': updatedAt.millisecondsSinceEpoch,
+        if (number != null) 'number': number,
       };
+
+  Quote copyWith({int? number}) => Quote(
+        lines: lines,
+        taxRate: taxRate,
+        notes: notes,
+        updatedAt: updatedAt,
+        number: number ?? this.number,
+      );
 }
