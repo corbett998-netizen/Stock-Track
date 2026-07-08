@@ -41,7 +41,7 @@ Future<void> shareQuotePdf(WorkOrder order) async {
         pw.Row(
           crossAxisAlignment: pw.CrossAxisAlignment.center,
           children: [
-            pw.Image(easyHvacLogo, height: 52),
+            pw.Image(easyHvacLogo, height: 76),
             pw.SizedBox(width: 16),
             pw.Expanded(
               child: pw.Column(
@@ -53,7 +53,7 @@ Future<void> shareQuotePdf(WorkOrder order) async {
                           fontWeight: pw.FontWeight.bold,
                           color: navy)),
                   pw.Text(
-                      'Furnaces • Tankless Water Heaters • AC • Heat Pumps & more',
+                      'Furnaces, Tankless Water Heaters, AC, Heat Pumps & more',
                       style: const pw.TextStyle(fontSize: 8, color: slate)),
                 ],
               ),
@@ -63,6 +63,21 @@ Future<void> shareQuotePdf(WorkOrder order) async {
         ),
         pw.SizedBox(height: 6),
         pw.Divider(color: navy, thickness: 2),
+        pw.SizedBox(height: 4),
+        // Contact strip — mirrors the paper invoice letterhead.
+        pw.Center(
+          child: pw.Text(
+            '2265 Petawawa Blvd. Pembroke, Ontario   |   24-hour 613.585.8615   |   Emergency Service 613.631.1399',
+            style: const pw.TextStyle(fontSize: 8.5, color: slate),
+          ),
+        ),
+        pw.SizedBox(height: 2),
+        pw.Center(
+          child: pw.Text(
+            'easyhvacservices@hotmail.com   |   H.S.T.# 721074524RT0001',
+            style: const pw.TextStyle(fontSize: 8.5, color: slate),
+          ),
+        ),
         pw.SizedBox(height: 10),
         pw.Row(
           mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
@@ -93,17 +108,7 @@ Future<void> shareQuotePdf(WorkOrder order) async {
                 pw.Text('Easy HVAC',
                     style: pw.TextStyle(
                         fontSize: 13, fontWeight: pw.FontWeight.bold)),
-                pw.Text('2265 Petawawa Blvd. Pembroke, Ontario',
-                    style: const pw.TextStyle(fontSize: 10, color: slate)),
-                pw.Text('24-hour: 613.585.8615',
-                    style: const pw.TextStyle(fontSize: 10, color: slate)),
-                pw.Text('Emergency Service: 613.631.1399',
-                    style: const pw.TextStyle(fontSize: 10, color: slate)),
-                pw.Text('easyhvacservices@hotmail.com',
-                    style: const pw.TextStyle(fontSize: 10, color: slate)),
-                pw.Text('H.S.T.# 721074524RT0001',
-                    style: const pw.TextStyle(fontSize: 10, color: slate)),
-                pw.Text('${order.installerName} — Licence # ${order.installerLicense}',
+                pw.Text('${order.installerName} - Licence # ${order.installerLicense}',
                     style: const pw.TextStyle(fontSize: 10, color: slate)),
                 pw.Text('Tempstar Elite Dealer',
                     style: const pw.TextStyle(fontSize: 10, color: slate)),
