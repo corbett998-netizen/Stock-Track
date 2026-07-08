@@ -77,6 +77,22 @@ class _WhatSectionState extends ConsumerState<WhatSection> {
 
   bool _quickAdding = false;
 
+  /// Keyboard done/enter commits the typed text: an exact inventory match is
+  /// added directly; anything else is auto-saved as a new out-of-stock item.
+  Future<void> _onSubmitted(String value) async {
+    final name = value.trim();
+    if (name.isEmpty) return;
+    final products = ref.read(productsProvider).valueOrNull ?? const [];
+    final exact = products
+        .where((p) => p.name.toLowerCase() == name.toLowerCase())
+        .firstOrNull;
+    if (exact != null) {
+      _onSuggestionTap(exact);
+    } else {
+      await _onQuickAdd(name);
+    }
+  }
+
   /// The typed item isn't stocked — save it to inventory at quantity 0 (shows
   /// as "Out of stock" on the Inventory tab so it lands on the order list),
   /// then put it on this work order.
@@ -154,8 +170,11 @@ class _WhatSectionState extends ConsumerState<WhatSection> {
         TextField(
           controller: _searchController,
           onChanged: (_) => setState(() {}),
+          textInputAction: TextInputAction.done,
+          onSubmitted: _onSubmitted,
           style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
-          decoration: _decoration('Search inventory…').copyWith(
+          decoration: _decoration('Type equipment — matches inventory as you type…')
+              .copyWith(
             prefixIcon:
                 const Icon(Icons.search, size: 20, color: AppColors.textFaint),
             isDense: true,
@@ -179,9 +198,9 @@ class _WhatSectionState extends ConsumerState<WhatSection> {
                         ? null
                         : () => _onSuggestionTap(product),
                   ),
-                // Not stocked (or not the exact item) — offer to create it.
-                if (!suggestions.any((p) =>
-                    p.name.toLowerCase() == query.trim().toLowerCase()))
+                // Nothing stocked matches — done/enter (or a tap here) saves
+                // the typed name as a new out-of-stock item.
+                if (suggestions.isEmpty)
                   _QuickAddRow(
                     name: query.trim(),
                     busy: _quickAdding,
@@ -318,19 +337,14 @@ class _QuickAddRow extends StatelessWidget {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                'Add "$name" as new item',
+                'Not in inventory — done adds "$name" as out of stock',
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   color: AppColors.primaryBlue,
-                  fontSize: 14,
+                  fontSize: 13,
                   fontWeight: FontWeight.w500,
                 ),
               ),
-            ),
-            const SizedBox(width: 8),
-            const Text(
-              'saves to inventory · out of stock',
-              style: TextStyle(color: AppColors.textFaint, fontSize: 11),
             ),
           ],
         ),
