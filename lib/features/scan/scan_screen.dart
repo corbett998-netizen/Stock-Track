@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
@@ -11,12 +12,72 @@ import '../../data/providers/inventory_providers.dart';
 import '../../data/providers/repository_providers.dart';
 import '../inventory/product_detail_screen.dart';
 
-/// How long the same set of barcodes must be continuously visible before we
-/// treat the camera as "stopped moving" and capture it.
-const _stabilityHold = Duration(seconds: 2);
+/// Size of the on-screen finder box the label must be aligned inside of
+/// before a capture is taken.
+const _finderBoxSize = Size(200, 120);
+
+/// Once the label's barcodes are fully inside the finder box, how long that
+/// alignment must hold (debounce against a single blurry/transient frame)
+/// before we capture.
+const _stabilityHold = Duration(milliseconds: 500);
 
 /// How long to hold the frozen capture on screen for review before moving on.
 const _freezeReviewDuration = Duration(seconds: 2);
+
+/// Maps a point in camera-image (texture) space to a point in the on-screen
+/// widget space, replicating the same [BoxFit.cover] scaling the camera
+/// preview itself uses to fill the viewport.
+Offset _textureToWidget(
+  Offset point, {
+  required Size textureSize,
+  required Size widgetSize,
+}) {
+  final scale = math.max(
+    widgetSize.width / textureSize.width,
+    widgetSize.height / textureSize.height,
+  );
+  final scaledTextureSize = Size(
+    textureSize.width * scale,
+    textureSize.height * scale,
+  );
+  final origin =
+      Alignment.center.inscribe(scaledTextureSize, Offset.zero & widgetSize).topLeft;
+  return origin + point * scale;
+}
+
+/// The bounding rectangle of a barcode's corners, in on-screen widget space.
+/// Returns null if the barcode has no corner data.
+Rect? _barcodeRectInWidgetSpace(
+  Barcode barcode, {
+  required Size textureSize,
+  required Size widgetSize,
+}) {
+  if (barcode.corners.isEmpty) return null;
+
+  double left = double.infinity;
+  double top = double.infinity;
+  double right = double.negativeInfinity;
+  double bottom = double.negativeInfinity;
+  for (final corner in barcode.corners) {
+    final p = _textureToWidget(
+      corner,
+      textureSize: textureSize,
+      widgetSize: widgetSize,
+    );
+    if (p.dx < left) left = p.dx;
+    if (p.dx > right) right = p.dx;
+    if (p.dy < top) top = p.dy;
+    if (p.dy > bottom) bottom = p.dy;
+  }
+  return Rect.fromLTRB(left, top, right, bottom);
+}
+
+bool _rectFullyInside(Rect inner, Rect outer) {
+  return inner.left >= outer.left &&
+      inner.top >= outer.top &&
+      inner.right <= outer.right &&
+      inner.bottom <= outer.bottom;
+}
 
 class ScanScreen extends ConsumerStatefulWidget {
   const ScanScreen({super.key});
@@ -32,10 +93,14 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
     returnImage: true,
   );
 
-  // Stability tracking — how long has this exact set of barcodes been held
-  // steady in frame.
+  // Stability tracking — how long has this exact set of in-box barcodes been
+  // held steady since the label became fully aligned in the finder box.
   List<String>? _pendingSignature;
   DateTime? _pendingSince;
+
+  // Whether the label is currently fully inside the finder box (drives the
+  // box's border color feedback).
+  bool _labelAligned = false;
 
   // Freeze-frame review, shown briefly right after a stable capture.
   Uint8List? _frozenImage;
@@ -63,19 +128,57 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
     super.dispose();
   }
 
-  void _onDetect(BarcodeCapture capture) {
+  void _setAligned(bool value) {
+    if (_labelAligned == value) return;
+    setState(() => _labelAligned = value);
+  }
+
+  void _onDetect(BarcodeCapture capture, Size viewportSize) {
     if (!_scanning) return;
 
     final codes = capture.barcodes
         .where((b) => b.rawValue != null && b.rawValue!.isNotEmpty)
         .toList();
-    if (codes.isEmpty) {
+    final textureSize = capture.size;
+    if (codes.isEmpty ||
+        textureSize.width <= 0 ||
+        textureSize.height <= 0 ||
+        viewportSize.width <= 0 ||
+        viewportSize.height <= 0) {
       _pendingSignature = null;
       _pendingSince = null;
+      _setAligned(false);
       return;
     }
 
-    final signature = codes.map((b) => b.rawValue!).toList()..sort();
+    // Only barcodes that are themselves fully inside the finder box count —
+    // this ignores stray labels elsewhere in frame and only fires once the
+    // scanned label is actually aligned where the user was told to put it.
+    final box = Rect.fromCenter(
+      center: viewportSize.center(Offset.zero),
+      width: _finderBoxSize.width,
+      height: _finderBoxSize.height,
+    );
+    final inBox = <Barcode>[
+      for (final code in codes)
+        if (_barcodeRectInWidgetSpace(
+              code,
+              textureSize: textureSize,
+              widgetSize: viewportSize,
+            )
+            case final rect? when _rectFullyInside(rect, box))
+          code,
+    ];
+
+    if (inBox.isEmpty) {
+      _pendingSignature = null;
+      _pendingSince = null;
+      _setAligned(false);
+      return;
+    }
+
+    _setAligned(true);
+    final signature = inBox.map((b) => b.rawValue!).toList()..sort();
     final now = DateTime.now();
 
     if (!listEquals(signature, _pendingSignature)) {
@@ -87,7 +190,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
     if (_pendingSince != null && now.difference(_pendingSince!) >= _stabilityHold) {
       _pendingSignature = null;
       _pendingSince = null;
-      _captureStable(capture, codes);
+      _captureStable(capture, inBox);
     }
   }
 
@@ -230,6 +333,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
     _classifiedSerial = null;
     _pendingSignature = null;
     _pendingSince = null;
+    _labelAligned = false;
     _cameraController.start();
     setState(() => _scanning = true);
   }
@@ -297,6 +401,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
                         barcodeController: _barcodeController,
                         onLookup: (code) => _lookup(code),
                         onDetect: _onDetect,
+                        labelAligned: _labelAligned,
                       ),
       ),
     );
@@ -311,21 +416,31 @@ class _ScannerView extends StatelessWidget {
     required this.barcodeController,
     required this.onLookup,
     required this.onDetect,
+    required this.labelAligned,
   });
 
   final MobileScannerController cameraController;
   final TextEditingController barcodeController;
   final ValueChanged<String> onLookup;
-  final ValueChanged<BarcodeCapture> onDetect;
+  final void Function(BarcodeCapture capture, Size viewportSize) onDetect;
+  final bool labelAligned;
 
   @override
   Widget build(BuildContext context) {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
       children: [
-        const Text(
-          'Hold steady over the barcode(s) — catalog number and serial are captured automatically. Or enter a code manually.',
-          style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+        Text(
+          labelAligned
+              ? 'Label aligned — hold steady…'
+              : 'Line the label up fully inside the box — catalog number and serial are captured automatically. Or enter a code manually.',
+          style: TextStyle(
+            color: labelAligned
+                ? AppColors.inStockGreen
+                : AppColors.textSecondary,
+            fontSize: 13,
+            fontWeight: labelAligned ? FontWeight.w700 : FontWeight.normal,
+          ),
         ),
         const SizedBox(height: 16),
 
@@ -334,26 +449,42 @@ class _ScannerView extends StatelessWidget {
           borderRadius: BorderRadius.circular(14),
           child: SizedBox(
             height: 240,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                MobileScanner(
-                  controller: cameraController,
-                  onDetect: onDetect,
-                ),
-                // Finder overlay.
-                Center(
-                  child: Container(
-                    width: 200,
-                    height: 120,
-                    decoration: BoxDecoration(
-                      border: Border.all(
-                          color: AppColors.primaryBlue, width: 2),
-                      borderRadius: BorderRadius.circular(10),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final viewportSize = constraints.biggest;
+                return Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    MobileScanner(
+                      controller: cameraController,
+                      scanWindow: Rect.fromCenter(
+                        center: viewportSize.center(Offset.zero),
+                        width: _finderBoxSize.width,
+                        height: _finderBoxSize.height,
+                      ),
+                      onDetect: (capture) => onDetect(capture, viewportSize),
                     ),
-                  ),
-                ),
-              ],
+                    // Finder overlay — the label must sit fully inside this
+                    // box before a scan is captured.
+                    Center(
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 150),
+                        width: _finderBoxSize.width,
+                        height: _finderBoxSize.height,
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            color: labelAligned
+                                ? AppColors.inStockGreen
+                                : AppColors.primaryBlue,
+                            width: 2,
+                          ),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
         ),
