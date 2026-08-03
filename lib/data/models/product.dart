@@ -13,7 +13,7 @@ class Product {
     required this.quantity,
     required this.unit,
     required this.minStock,
-    this.serial,
+    this.serials = const [],
     this.description,
     this.photoUrl,
   });
@@ -22,7 +22,11 @@ class Product {
   final String name;
   final String barcode;
   final String sku;
-  final String? serial;
+
+  /// Serial numbers of individual units logged against this catalog item
+  /// (e.g. via barcode scan). Each entry identifies one physical unit within
+  /// this category; [quantity] is the aggregate stock count.
+  final List<String> serials;
   final String? description;
   final String? photoUrl;
   final String category;
@@ -41,7 +45,7 @@ class Product {
       name: d['name'] as String? ?? '',
       barcode: d['barcode'] as String? ?? '',
       sku: d['sku'] as String? ?? '',
-      serial: d['serial'] as String?,
+      serials: (d['serials'] as List<dynamic>?)?.cast<String>() ?? const [],
       description: d['description'] as String?,
       photoUrl: d['photoUrl'] as String?,
       category: d['category'] as String? ?? '',
@@ -56,8 +60,7 @@ class Product {
         'name': name,
         'barcode': barcode,
         'sku': sku,
-        if (serial != null) 'serial': serial,
-        if (serial != null) 'serial': serial,
+        'serials': serials,
         if (description != null) 'description': description,
         if (photoUrl != null) 'photoUrl': photoUrl,
         'category': category,
@@ -72,7 +75,7 @@ class Product {
     String? name,
     String? barcode,
     String? sku,
-    String? serial,
+    List<String>? serials,
     String? category,
     String? location,
     int? quantity,
@@ -86,7 +89,7 @@ class Product {
         name: name ?? this.name,
         barcode: barcode ?? this.barcode,
         sku: sku ?? this.sku,
-        serial: serial ?? this.serial,
+        serials: serials ?? this.serials,
         category: category ?? this.category,
         location: location ?? this.location,
         quantity: quantity ?? this.quantity,

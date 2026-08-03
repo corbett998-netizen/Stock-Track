@@ -47,8 +47,8 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
       TextEditingController(text: widget.product.category);
   late final _locationController =
       TextEditingController(text: widget.product.location);
-  late final _serialController =
-      TextEditingController(text: widget.product.serial ?? '');
+  late List<String> _serials = List.of(widget.product.serials);
+  final _newSerialController = TextEditingController();
   late final _unitController = TextEditingController(text: widget.product.unit);
   late final _minStockController =
       TextEditingController(text: widget.product.minStock.toString());
@@ -65,7 +65,7 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
     _descriptionController.dispose();
     _categoryController.dispose();
     _locationController.dispose();
-    _serialController.dispose();
+    _newSerialController.dispose();
     _unitController.dispose();
     _minStockController.dispose();
     _quantityController.dispose();
@@ -100,6 +100,15 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
     if (file != null) setState(() => _pickedPhoto = file);
   }
 
+  void _addSerial() {
+    final v = _newSerialController.text.trim();
+    if (v.isEmpty || _serials.contains(v)) return;
+    setState(() {
+      _serials.add(v);
+      _newSerialController.clear();
+    });
+  }
+
   Future<void> _save() async {
     setState(() => _saving = true);
     final repo = ref.read(inventoryRepositoryProvider);
@@ -120,13 +129,12 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
           file: File(_pickedPhoto!.path),
         );
       }
-      final serial = _serialController.text.trim();
       await repo.addProduct(
         widget.product.copyWith(
           id: tempId,
           name: _nameController.text.trim(),
           description: description.isEmpty ? null : description,
-          serial: serial.isEmpty ? null : serial,
+          serials: _serials,
           category: _categoryController.text.trim(),
           location: _locationController.text.trim(),
           unit: _unitController.text.trim(),
@@ -145,11 +153,10 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
         );
       }
       // Persist full updated product.
-      final serial = _serialController.text.trim();
       final updated = widget.product.copyWith(
         name: _nameController.text.trim(),
         description: description.isEmpty ? null : description,
-        serial: serial.isEmpty ? null : serial,
+        serials: _serials,
         category: _categoryController.text.trim(),
         location: _locationController.text.trim(),
         unit: _unitController.text.trim(),
@@ -262,10 +269,14 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
             _DetailSection(
               title: 'Product Details',
               rows: [
-                _DetailRow('Barcode', widget.product.barcode),
-                if (widget.product.serial != null &&
-                    widget.product.serial!.isNotEmpty)
-                  _DetailRow('Serial number', widget.product.serial!),
+                _DetailRow('Catalog number', widget.product.barcode),
+                if (widget.product.serials.isNotEmpty)
+                  _DetailRow(
+                    widget.product.serials.length == 1
+                        ? 'Serial number'
+                        : 'Serial numbers (${widget.product.serials.length})',
+                    widget.product.serials.join(', '),
+                  ),
                 _DetailRow('Category', widget.product.category),
                 _DetailRow('Location', widget.product.location),
                 _DetailRow('Unit', widget.product.unit),
@@ -382,15 +393,17 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
               Padding(
                 padding: const EdgeInsets.only(bottom: 12),
                 child: Text(
-                  'Barcode: ${widget.product.barcode}',
+                  'Catalog number: ${widget.product.barcode}',
                   style: const TextStyle(color: AppColors.textFaint, fontSize: 12),
                 ),
               ),
             _NameAutocomplete(controller: _nameController),
             const SizedBox(height: 12),
-            _FormField(
-              label: 'Serial number (optional)',
-              controller: _serialController,
+            _SerialsEditor(
+              serials: _serials,
+              controller: _newSerialController,
+              onAdd: _addSerial,
+              onRemove: (s) => setState(() => _serials.remove(s)),
             ),
             const SizedBox(height: 12),
             _FormField(
@@ -539,6 +552,67 @@ class _NameAutocomplete extends ConsumerWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+// Editable list of serial numbers logged against this product.
+class _SerialsEditor extends StatelessWidget {
+  const _SerialsEditor({
+    required this.serials,
+    required this.controller,
+    required this.onAdd,
+    required this.onRemove,
+  });
+
+  final List<String> serials;
+  final TextEditingController controller;
+  final VoidCallback onAdd;
+  final ValueChanged<String> onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Serial numbers',
+          style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+        ),
+        if (serials.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: serials
+                .map((s) => Chip(
+                      label: Text(s),
+                      onDeleted: () => onRemove(s),
+                    ))
+                .toList(),
+          ),
+        ],
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: controller,
+                style: const TextStyle(color: AppColors.textPrimary),
+                decoration: const InputDecoration(
+                  hintText: 'Add a serial number…',
+                ),
+                onSubmitted: (_) => onAdd(),
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              onPressed: onAdd,
+              icon: const Icon(Icons.add_circle_outline),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }

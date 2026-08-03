@@ -28,6 +28,15 @@ abstract interface class InventoryRepository {
   /// Add a brand-new product (e.g. from a not-found scan or the Inventory
   /// "Add" flow).
   Future<Product> addProduct(Product product);
+
+  /// Log one physically-scanned unit against an existing catalog item: adds
+  /// [serial] to its serials list and bumps quantity by 1. No-ops (returns
+  /// the product unchanged) if [serial] is already recorded, so re-scanning
+  /// the same unit doesn't double-count it.
+  Future<Product> addSerial({
+    required String productId,
+    required String serial,
+  });
 }
 
 /// In-memory mock. Seeded from [kSeedProducts]; backed by a broadcast stream so
@@ -83,5 +92,25 @@ class MockInventoryRepository implements InventoryRepository {
     _products.add(product);
     _controller.add(_snapshot);
     return product;
+  }
+
+  @override
+  Future<Product> addSerial({
+    required String productId,
+    required String serial,
+  }) async {
+    final index = _products.indexWhere((p) => p.id == productId);
+    if (index == -1) {
+      throw StateError('No product with id "$productId"');
+    }
+    final current = _products[index];
+    if (current.serials.contains(serial)) return current;
+    final updated = current.copyWith(
+      serials: [...current.serials, serial],
+      quantity: current.quantity + 1,
+    );
+    _products[index] = updated;
+    _controller.add(_snapshot);
+    return updated;
   }
 }

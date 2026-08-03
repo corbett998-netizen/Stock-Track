@@ -81,6 +81,33 @@ class FirebaseInventoryRepository implements InventoryRepository {
     return withId;
   }
 
+  @override
+  Future<Product> addSerial({
+    required String productId,
+    required String serial,
+  }) async {
+    final ref = _col.doc(productId);
+    late Product updated;
+    await FirebaseFirestore.instance.runTransaction((tx) async {
+      final snap = await tx.get(ref as DocumentReference<Map<String, dynamic>>);
+      if (!snap.exists) throw StateError('No product with id "$productId"');
+      final current = Product.fromFirestore(snap);
+      if (current.serials.contains(serial)) {
+        updated = current;
+        return;
+      }
+      updated = current.copyWith(
+        serials: [...current.serials, serial],
+        quantity: current.quantity + 1,
+      );
+      tx.update(ref, {
+        'serials': updated.serials,
+        'quantity': updated.quantity,
+      });
+    });
+    return updated;
+  }
+
   /// Upload a photo file and return the download URL.
   Future<String> uploadPhoto({
     required String productId,
