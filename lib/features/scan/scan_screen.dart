@@ -1,10 +1,13 @@
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../data/models/product.dart';
@@ -28,9 +31,6 @@ Size _finderBoxSizeFor(Size viewportSize) => Size(
 /// alignment must hold (debounce against a single blurry/transient frame)
 /// before we capture.
 const _stabilityHold = Duration(milliseconds: 500);
-
-/// How long to hold the frozen capture on screen for review before moving on.
-const _freezeReviewDuration = Duration(seconds: 2);
 
 /// Maps a point in camera-image (texture) space to a point in the on-screen
 /// widget space, replicating the same [BoxFit.cover] scaling the camera
@@ -87,6 +87,63 @@ bool _rectFullyInside(Rect inner, Rect outer) {
       inner.bottom <= outer.bottom;
 }
 
+/// Best-effort catalog/serial numbers read from the label's printed text
+/// (as opposed to a decoded barcode value, which often encodes something
+/// else entirely — e.g. a UPC/GTIN that doesn't match the printed catalog
+/// number a person would actually read off the nameplate).
+class _OcrGuess {
+  const _OcrGuess({this.catalog, this.serial});
+  final String? catalog;
+  final String? serial;
+}
+
+final _catalogLabelPattern = RegExp(
+  r'\b(CAT(?:ALOG)?\.?\s*(?:NO|NUM|#)?|MODEL\.?\s*(?:NO|NUM|#)?)\b\.?\s*[:\-]?',
+  caseSensitive: false,
+);
+final _serialLabelPattern = RegExp(
+  r'\b(S\s*/\s*N|SERIAL\.?\s*(?:NO|NUM|#)?)\b\.?\s*[:\-]?',
+  caseSensitive: false,
+);
+
+/// Scans recognized text lines for common nameplate labels ("MODEL NO.",
+/// "CAT #", "SERIAL NO.", "S/N") and returns the value next to or below
+/// each one, if found. This is a heuristic, not a guarantee — the caller
+/// is expected to let the user review/correct the result.
+_OcrGuess _guessCatalogAndSerial(RecognizedText text) {
+  final lines = [for (final block in text.blocks) ...block.lines];
+
+  String? extractNearValue(RegExp labelPattern, int lineIndex) {
+    final line = lines[lineIndex].text.trim();
+    final match = labelPattern.firstMatch(line);
+    if (match != null) {
+      final sameLineValue = line.substring(match.end).trim();
+      if (sameLineValue.isNotEmpty) return sameLineValue;
+    }
+    if (lineIndex + 1 < lines.length) {
+      final nextLine = lines[lineIndex + 1].text.trim();
+      if (nextLine.isNotEmpty && !labelPattern.hasMatch(nextLine)) {
+        return nextLine;
+      }
+    }
+    return null;
+  }
+
+  String? catalog;
+  String? serial;
+  for (var i = 0; i < lines.length && (catalog == null || serial == null); i++) {
+    final line = lines[i].text;
+    if (catalog == null && _catalogLabelPattern.hasMatch(line)) {
+      catalog = extractNearValue(_catalogLabelPattern, i);
+    }
+    if (serial == null && _serialLabelPattern.hasMatch(line)) {
+      serial = extractNearValue(_serialLabelPattern, i);
+    }
+  }
+
+  return _OcrGuess(catalog: catalog, serial: serial);
+}
+
 class ScanScreen extends ConsumerStatefulWidget {
   const ScanScreen({super.key});
 
@@ -110,10 +167,16 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
   // box's border color feedback).
   bool _labelAligned = false;
 
-  // Freeze-frame review, shown briefly right after a stable capture.
+  // Freeze-frame review, shown right after a stable capture. Catalog/serial
+  // are pre-filled with a best guess (OCR text if found, else the decoded
+  // barcode value) but stay editable — the user confirms before we look up
+  // or save anything.
   Uint8List? _frozenImage;
-  String? _classifiedCatalog;
-  String? _classifiedSerial;
+  bool _reviewingCapture = false;
+  bool _ocrRunning = false;
+  final _catalogController = TextEditingController();
+  final _serialController = TextEditingController();
+  final _textRecognizer = TextRecognizer();
 
   // Existing-product match — either a one-tap "log this unit" confirm
   // (when we captured a serial) or the bulk quantity stepper (when we
@@ -133,6 +196,9 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
   void dispose() {
     _barcodeController.dispose();
     _cameraController.dispose();
+    _catalogController.dispose();
+    _serialController.dispose();
+    _textRecognizer.close();
     super.dispose();
   }
 
@@ -214,26 +280,67 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
     setState(() => _scanning = false);
     await _cameraController.stop();
 
-    // The catalog number is the largest, most-prominent barcode on the
-    // label; a second (smaller) barcode, if present, is the serial number.
+    // Barcode values are a fallback only — a decoded barcode (e.g. a
+    // UPC/GTIN) often doesn't match the catalog number actually printed on
+    // the label. The largest barcode is assumed catalog-ish, a second
+    // (smaller) one serial-ish, but OCR below takes priority when it finds
+    // a labeled match.
     final bySize = [...codes]..sort(
         (a, b) => (b.size.width * b.size.height)
             .compareTo(a.size.width * a.size.height),
       );
-    final catalogNumber = bySize.first.rawValue!;
-    final serialNumber = bySize.length > 1 ? bySize[1].rawValue : null;
+    final barcodeCatalog = bySize.first.rawValue!;
+    final barcodeSerial = bySize.length > 1 ? bySize[1].rawValue : null;
 
     if (!mounted) return;
     setState(() {
       _frozenImage = capture.image;
-      _classifiedCatalog = catalogNumber;
-      _classifiedSerial = serialNumber;
+      _reviewingCapture = true;
+      _ocrRunning = true;
+      _catalogController.text = barcodeCatalog;
+      _serialController.text = barcodeSerial ?? '';
     });
 
-    await Future.delayed(_freezeReviewDuration);
-    if (!mounted) return;
+    final imageBytes = capture.image;
+    if (imageBytes != null) {
+      try {
+        final tempDir = await getTemporaryDirectory();
+        final file = File(
+          '${tempDir.path}/stocktrack_scan_${DateTime.now().microsecondsSinceEpoch}.jpg',
+        );
+        await file.writeAsBytes(imageBytes);
+        final recognized = await _textRecognizer.processImage(
+          InputImage.fromFilePath(file.path),
+        );
+        try {
+          await file.delete();
+        } catch (_) {
+          // Best-effort cleanup only.
+        }
 
-    await _lookup(catalogNumber, serial: serialNumber);
+        final guess = _guessCatalogAndSerial(recognized);
+        if (mounted) {
+          setState(() {
+            if (guess.catalog != null) _catalogController.text = guess.catalog!;
+            if (guess.serial != null) _serialController.text = guess.serial!;
+          });
+        }
+      } catch (_) {
+        // OCR is best-effort; the barcode-derived values already filled in
+        // above remain as the fallback.
+      }
+    }
+
+    if (!mounted) return;
+    setState(() => _ocrRunning = false);
+  }
+
+  Future<void> _confirmCapture() async {
+    final catalog = _catalogController.text.trim();
+    if (catalog.isEmpty) return;
+    final serial = _serialController.text.trim();
+    setState(() => _reviewingCapture = false);
+    await _lookup(catalog, serial: serial.isEmpty ? null : serial);
   }
 
   Future<void> _lookup(String catalogNumber, {String? serial}) async {
@@ -345,8 +452,10 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
 
   void _resumeScanning() {
     _frozenImage = null;
-    _classifiedCatalog = null;
-    _classifiedSerial = null;
+    _reviewingCapture = false;
+    _ocrRunning = false;
+    _catalogController.clear();
+    _serialController.clear();
     _pendingSignature = null;
     _pendingSince = null;
     _labelAligned = false;
@@ -363,7 +472,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
             .firstOrNull;
 
     final showTorch = _matchedProduct == null &&
-        _frozenImage == null &&
+        !_reviewingCapture &&
         _duplicateProduct == null;
 
     return Scaffold(
@@ -406,11 +515,14 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
                         onConfirm: _confirmAdd,
                         onCancel: _dismissMatch,
                       ))
-                : _frozenImage != null
+                : _reviewingCapture
                     ? _FrozenReview(
-                        image: _frozenImage!,
-                        catalogNumber: _classifiedCatalog,
-                        serialNumber: _classifiedSerial,
+                        image: _frozenImage,
+                        catalogController: _catalogController,
+                        serialController: _serialController,
+                        ocrRunning: _ocrRunning,
+                        onConfirm: _confirmCapture,
+                        onRetake: _resumeScanning,
                       )
                     : _ScannerView(
                         cameraController: _cameraController,
@@ -536,13 +648,19 @@ class _ScannerView extends StatelessWidget {
 class _FrozenReview extends StatelessWidget {
   const _FrozenReview({
     required this.image,
-    required this.catalogNumber,
-    required this.serialNumber,
+    required this.catalogController,
+    required this.serialController,
+    required this.ocrRunning,
+    required this.onConfirm,
+    required this.onRetake,
   });
 
-  final Uint8List image;
-  final String? catalogNumber;
-  final String? serialNumber;
+  final Uint8List? image;
+  final TextEditingController catalogController;
+  final TextEditingController serialController;
+  final bool ocrRunning;
+  final VoidCallback onConfirm;
+  final VoidCallback onRetake;
 
   @override
   Widget build(BuildContext context) {
@@ -556,9 +674,11 @@ class _FrozenReview extends StatelessWidget {
             child: Stack(
               children: [
                 SizedBox(
-                  height: 240,
+                  height: 220,
                   width: double.infinity,
-                  child: Image.memory(image, fit: BoxFit.cover),
+                  child: image != null
+                      ? Image.memory(image!, fit: BoxFit.cover)
+                      : Container(color: AppColors.surfaceAlt),
                 ),
                 Positioned(
                   top: 10,
@@ -584,25 +704,81 @@ class _FrozenReview extends StatelessWidget {
                     ),
                   ),
                 ),
+                if (ocrRunning)
+                  Positioned.fill(
+                    child: Container(
+                      color: Colors.black45,
+                      child: const Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(
+                              width: 28,
+                              height: 28,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 3,
+                              ),
+                            ),
+                            SizedBox(height: 10),
+                            Text(
+                              'Reading label…',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
           const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: AppColors.surfaceBorder),
+          Text(
+            ocrRunning
+                ? 'Reading the label…'
+                : "Check these against the label — edit anything that's wrong.",
+            style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: catalogController,
+            style: const TextStyle(color: AppColors.textPrimary),
+            decoration: const InputDecoration(labelText: 'Catalog number'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: serialController,
+            style: const TextStyle(color: AppColors.textPrimary),
+            decoration:
+                const InputDecoration(labelText: 'Serial number (optional)'),
+          ),
+          const SizedBox(height: 20),
+          FilledButton(
+            onPressed: ocrRunning ? null : onConfirm,
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.inStockGreen,
+              foregroundColor: Colors.white,
+              minimumSize: const Size.fromHeight(52),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _ReadoutRow(label: 'Catalog number', value: catalogNumber),
-                const SizedBox(height: 8),
-                _ReadoutRow(label: 'Serial number', value: serialNumber),
-              ],
+            child: const Text(
+              'Looks good — continue',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
             ),
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton(
+            onPressed: onRetake,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.textSecondary,
+              side: const BorderSide(color: AppColors.surfaceBorder),
+              minimumSize: const Size.fromHeight(48),
+            ),
+            child: const Text('Retake'),
           ),
         ],
       ),
