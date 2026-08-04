@@ -12,19 +12,24 @@ import 'inventory_repository.dart';
 /// Photos: Firebase Storage at `inventory/{id}/photo.jpg`.
 class FirebaseInventoryRepository implements InventoryRepository {
   FirebaseInventoryRepository()
-      : _col = FirebaseFirestore.instance.collection('products'),
-        _storage = FirebaseStorage.instance;
+    : _col = FirebaseFirestore.instance.collection('products'),
+      _storage = FirebaseStorage.instance;
 
   final CollectionReference<Map<String, dynamic>> _col;
   final FirebaseStorage _storage;
 
   @override
   Stream<List<Product>> watchProducts() {
-    return _col.orderBy('name').snapshots().map(
+    return _col
+        .orderBy('name')
+        .snapshots()
+        .map(
           (snap) => snap.docs
-              .map((d) => Product.fromFirestore(
-                    d as DocumentSnapshot<Map<String, dynamic>>,
-                  ))
+              .map(
+                (d) => Product.fromFirestore(
+                  d as DocumentSnapshot<Map<String, dynamic>>,
+                ),
+              )
               .toList(),
         );
   }
@@ -33,9 +38,11 @@ class FirebaseInventoryRepository implements InventoryRepository {
   Future<List<Product>> getProducts() async {
     final snap = await _col.orderBy('name').get();
     return snap.docs
-        .map((d) => Product.fromFirestore(
-              d as DocumentSnapshot<Map<String, dynamic>>,
-            ))
+        .map(
+          (d) => Product.fromFirestore(
+            d as DocumentSnapshot<Map<String, dynamic>>,
+          ),
+        )
         .toList();
   }
 
@@ -44,8 +51,7 @@ class FirebaseInventoryRepository implements InventoryRepository {
     final code = barcode.trim();
     // Try barcode field first, then sku.
     for (final field in ['barcode', 'sku']) {
-      final snap =
-          await _col.where(field, isEqualTo: code).limit(1).get();
+      final snap = await _col.where(field, isEqualTo: code).limit(1).get();
       if (snap.docs.isNotEmpty) {
         return Product.fromFirestore(
           snap.docs.first as DocumentSnapshot<Map<String, dynamic>>,
@@ -92,20 +98,82 @@ class FirebaseInventoryRepository implements InventoryRepository {
       final snap = await tx.get(ref as DocumentReference<Map<String, dynamic>>);
       if (!snap.exists) throw StateError('No product with id "$productId"');
       final current = Product.fromFirestore(snap);
-      if (current.serials.contains(serial)) {
+      if (current.serials.any((r) => r.serial == serial)) {
         updated = current;
         return;
       }
       updated = current.copyWith(
-        serials: [...current.serials, serial],
+        serials: [
+          ...current.serials,
+          SerialRecord(serial: serial),
+        ],
         quantity: current.quantity + 1,
       );
       tx.update(ref, {
-        'serials': updated.serials,
+        'serials': updated.serials.map((s) => s.toMap()).toList(),
         'quantity': updated.quantity,
       });
     });
     return updated;
+  }
+
+  Future<Product> _updateSerialStatus(
+    String productId,
+    String serial,
+    SerialRecord Function(SerialRecord current) update,
+  ) async {
+    final ref = _col.doc(productId);
+    late Product updated;
+    await FirebaseFirestore.instance.runTransaction((tx) async {
+      final snap = await tx.get(ref as DocumentReference<Map<String, dynamic>>);
+      if (!snap.exists) throw StateError('No product with id "$productId"');
+      final current = Product.fromFirestore(snap);
+      final serialIndex = current.serials.indexWhere((r) => r.serial == serial);
+      if (serialIndex == -1) {
+        throw StateError('No serial "$serial" logged on product "$productId"');
+      }
+      final newSerials = [...current.serials];
+      newSerials[serialIndex] = update(newSerials[serialIndex]);
+      updated = current.copyWith(
+        serials: newSerials,
+        quantity: (current.quantity - 1).clamp(0, 1 << 30),
+      );
+      tx.update(ref, {
+        'serials': updated.serials.map((s) => s.toMap()).toList(),
+        'quantity': updated.quantity,
+      });
+    });
+    return updated;
+  }
+
+  @override
+  Future<Product> attachSerialToWorkOrder({
+    required String productId,
+    required String serial,
+    required String workOrderId,
+    required String workOrderLabel,
+  }) {
+    return _updateSerialStatus(
+      productId,
+      serial,
+      (r) => r.copyWith(
+        status: SerialStatus.onWorkOrder,
+        workOrderId: workOrderId,
+        workOrderLabel: workOrderLabel,
+      ),
+    );
+  }
+
+  @override
+  Future<Product> markSerialInstalled({
+    required String productId,
+    required String serial,
+  }) {
+    return _updateSerialStatus(
+      productId,
+      serial,
+      (r) => r.copyWith(status: SerialStatus.installed),
+    );
   }
 
   /// Upload a photo file and return the download URL.

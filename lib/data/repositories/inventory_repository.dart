@@ -37,6 +37,26 @@ abstract interface class InventoryRepository {
     required String productId,
     required String serial,
   });
+
+  /// A previously-logged unit is being sent out on a work order: marks its
+  /// [SerialRecord.status] as [SerialStatus.onWorkOrder] and decrements
+  /// [Product.quantity] by 1 (it's leaving the warehouse). Throws if
+  /// [productId] or [serial] isn't found.
+  Future<Product> attachSerialToWorkOrder({
+    required String productId,
+    required String serial,
+    required String workOrderId,
+    required String workOrderLabel,
+  });
+
+  /// A previously-logged unit is confirmed installed (not tied to any
+  /// specific work order): marks its status as [SerialStatus.installed] and
+  /// decrements [Product.quantity] by 1. Throws if [productId] or [serial]
+  /// isn't found.
+  Future<Product> markSerialInstalled({
+    required String productId,
+    required String serial,
+  });
 }
 
 /// In-memory mock. Seeded from [kSeedProducts]; backed by a broadcast stream so
@@ -104,13 +124,71 @@ class MockInventoryRepository implements InventoryRepository {
       throw StateError('No product with id "$productId"');
     }
     final current = _products[index];
-    if (current.serials.contains(serial)) return current;
+    if (current.serials.any((r) => r.serial == serial)) return current;
     final updated = current.copyWith(
-      serials: [...current.serials, serial],
+      serials: [
+        ...current.serials,
+        SerialRecord(serial: serial),
+      ],
       quantity: current.quantity + 1,
     );
     _products[index] = updated;
     _controller.add(_snapshot);
     return updated;
+  }
+
+  Product _updateSerialStatus(
+    String productId,
+    String serial,
+    SerialRecord Function(SerialRecord current) update,
+  ) {
+    final index = _products.indexWhere((p) => p.id == productId);
+    if (index == -1) {
+      throw StateError('No product with id "$productId"');
+    }
+    final current = _products[index];
+    final serialIndex = current.serials.indexWhere((r) => r.serial == serial);
+    if (serialIndex == -1) {
+      throw StateError('No serial "$serial" logged on product "$productId"');
+    }
+    final newSerials = [...current.serials];
+    newSerials[serialIndex] = update(newSerials[serialIndex]);
+    final updated = current.copyWith(
+      serials: newSerials,
+      quantity: (current.quantity - 1).clamp(0, 1 << 30),
+    );
+    _products[index] = updated;
+    _controller.add(_snapshot);
+    return updated;
+  }
+
+  @override
+  Future<Product> attachSerialToWorkOrder({
+    required String productId,
+    required String serial,
+    required String workOrderId,
+    required String workOrderLabel,
+  }) async {
+    return _updateSerialStatus(
+      productId,
+      serial,
+      (r) => r.copyWith(
+        status: SerialStatus.onWorkOrder,
+        workOrderId: workOrderId,
+        workOrderLabel: workOrderLabel,
+      ),
+    );
+  }
+
+  @override
+  Future<Product> markSerialInstalled({
+    required String productId,
+    required String serial,
+  }) async {
+    return _updateSerialStatus(
+      productId,
+      serial,
+      (r) => r.copyWith(status: SerialStatus.installed),
+    );
   }
 }

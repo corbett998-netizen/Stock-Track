@@ -41,19 +41,24 @@ class ProductDetailScreen extends ConsumerStatefulWidget {
 class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
   late bool _editing = widget.isNew || widget.isEditing;
   late final _nameController = TextEditingController(text: widget.product.name);
-  late final _descriptionController =
-      TextEditingController(text: widget.product.description ?? '');
-  late final _categoryController =
-      TextEditingController(text: widget.product.category);
-  late final _locationController =
-      TextEditingController(text: widget.product.location);
-  late List<String> _serials = List.of(widget.product.serials);
+  late final _descriptionController = TextEditingController(
+    text: widget.product.description ?? '',
+  );
+  late final _categoryController = TextEditingController(
+    text: widget.product.category,
+  );
+  late final _locationController = TextEditingController(
+    text: widget.product.location,
+  );
+  late List<String> _serials = List.of(widget.product.serialNumbers);
   final _newSerialController = TextEditingController();
   late final _unitController = TextEditingController(text: widget.product.unit);
-  late final _minStockController =
-      TextEditingController(text: widget.product.minStock.toString());
-  late final _quantityController =
-      TextEditingController(text: widget.product.quantity.toString());
+  late final _minStockController = TextEditingController(
+    text: widget.product.minStock.toString(),
+  );
+  late final _quantityController = TextEditingController(
+    text: widget.product.quantity.toString(),
+  );
 
   bool _saving = false;
   XFile? _pickedPhoto;
@@ -109,14 +114,28 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
     });
   }
 
+  /// Rebuilds the [SerialRecord] list from the editor's plain-string chips,
+  /// preserving each existing record's status/work-order link for serials
+  /// that are still present, and defaulting freshly-added ones to warehouse.
+  List<SerialRecord> _mergedSerials() {
+    final existingBySerial = {
+      for (final r in widget.product.serials) r.serial: r,
+    };
+    return [
+      for (final s in _serials) existingBySerial[s] ?? SerialRecord(serial: s),
+    ];
+  }
+
   Future<void> _save() async {
     setState(() => _saving = true);
     final repo = ref.read(inventoryRepositoryProvider);
     final fbRepo = repo is FirebaseInventoryRepository ? repo : null;
     final quantity =
-        int.tryParse(_quantityController.text.trim()) ?? widget.product.quantity;
+        int.tryParse(_quantityController.text.trim()) ??
+        widget.product.quantity;
     final minStock =
-        int.tryParse(_minStockController.text.trim()) ?? widget.product.minStock;
+        int.tryParse(_minStockController.text.trim()) ??
+        widget.product.minStock;
     final description = _descriptionController.text.trim();
 
     if (widget.isNew) {
@@ -134,7 +153,7 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
           id: tempId,
           name: _nameController.text.trim(),
           description: description.isEmpty ? null : description,
-          serials: _serials,
+          serials: _mergedSerials(),
           category: _categoryController.text.trim(),
           location: _locationController.text.trim(),
           unit: _unitController.text.trim(),
@@ -156,7 +175,7 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
       final updated = widget.product.copyWith(
         name: _nameController.text.trim(),
         description: description.isEmpty ? null : description,
-        serials: _serials,
+        serials: _mergedSerials(),
         category: _categoryController.text.trim(),
         location: _locationController.text.trim(),
         unit: _unitController.text.trim(),
@@ -169,8 +188,7 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
       } else {
         final delta = quantity - widget.product.quantity;
         if (delta != 0) {
-          await repo.adjustQuantity(
-              productId: widget.product.id, delta: delta);
+          await repo.adjustQuantity(productId: widget.product.id, delta: delta);
         }
       }
     }
@@ -236,7 +254,10 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
                   const SizedBox(height: 6),
                   Text(
                     'Min stock: ${widget.product.minStock} ${widget.product.unit}',
-                    style: const TextStyle(color: AppColors.textFaint, fontSize: 12),
+                    style: const TextStyle(
+                      color: AppColors.textFaint,
+                      fontSize: 12,
+                    ),
                   ),
                 ],
               ),
@@ -275,7 +296,7 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
                     widget.product.serials.length == 1
                         ? 'Serial number'
                         : 'Serial numbers (${widget.product.serials.length})',
-                    widget.product.serials.join(', '),
+                    widget.product.serialNumbers.join(', '),
                   ),
                 _DetailRow('Category', widget.product.category),
                 _DetailRow('Location', widget.product.location),
@@ -346,17 +367,16 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
                   height: _photoExpanded ? 260 : 90,
                   width: double.infinity,
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(_photoExpanded ? 14 : 10),
+                    borderRadius: BorderRadius.circular(
+                      _photoExpanded ? 14 : 10,
+                    ),
                     border: Border.all(color: AppColors.surfaceBorder),
                   ),
                   clipBehavior: Clip.hardEdge,
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
-                      Image.file(
-                        File(_pickedPhoto!.path),
-                        fit: BoxFit.cover,
-                      ),
+                      Image.file(File(_pickedPhoto!.path), fit: BoxFit.cover),
                       Positioned(
                         top: 6,
                         right: 6,
@@ -368,7 +388,8 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
                                   ? Icons.unfold_less
                                   : Icons.unfold_more,
                               onTap: () => setState(
-                                  () => _photoExpanded = !_photoExpanded),
+                                () => _photoExpanded = !_photoExpanded,
+                              ),
                             ),
                             const SizedBox(width: 6),
                             _PhotoChip(
@@ -394,7 +415,10 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
                 padding: const EdgeInsets.only(bottom: 12),
                 child: Text(
                   'Catalog number: ${widget.product.barcode}',
-                  style: const TextStyle(color: AppColors.textFaint, fontSize: 12),
+                  style: const TextStyle(
+                    color: AppColors.textFaint,
+                    fontSize: 12,
+                  ),
                 ),
               ),
             _NameAutocomplete(controller: _nameController),
@@ -498,12 +522,14 @@ class _NameAutocomplete extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final existingNames = ref
-        .watch(productsProvider)
-        .valueOrNull
-        ?.map((p) => p.name)
-        .toSet()
-        .toList() ?? const [];
+    final existingNames =
+        ref
+            .watch(productsProvider)
+            .valueOrNull
+            ?.map((p) => p.name)
+            .toSet()
+            .toList() ??
+        const [];
 
     return Autocomplete<String>(
       initialValue: TextEditingValue(text: controller.text),
@@ -543,8 +569,10 @@ class _NameAutocomplete extends ConsumerWidget {
                 final name = options.elementAt(i);
                 return ListTile(
                   dense: true,
-                  title: Text(name,
-                      style: const TextStyle(color: AppColors.textPrimary)),
+                  title: Text(
+                    name,
+                    style: const TextStyle(color: AppColors.textPrimary),
+                  ),
                   onTap: () => onSelected(name),
                 );
               },
@@ -585,10 +613,7 @@ class _SerialsEditor extends StatelessWidget {
             spacing: 8,
             runSpacing: 8,
             children: serials
-                .map((s) => Chip(
-                      label: Text(s),
-                      onDeleted: () => onRemove(s),
-                    ))
+                .map((s) => Chip(label: Text(s), onDeleted: () => onRemove(s)))
                 .toList(),
           ),
         ],
@@ -637,9 +662,7 @@ class _FormField extends StatelessWidget {
       keyboardType: keyboardType,
       maxLines: maxLines,
       style: const TextStyle(color: AppColors.textPrimary),
-      decoration: InputDecoration(
-        labelText: label,
-      ),
+      decoration: InputDecoration(labelText: label),
     );
   }
 }
@@ -670,24 +693,33 @@ class _DetailSection extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          ...rows.map((r) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: Row(
-                  children: [
-                    if (r.label.isNotEmpty) ...[
-                      Text(r.label,
-                          style: const TextStyle(
-                              color: AppColors.textSecondary, fontSize: 13)),
-                      const Spacer(),
-                    ],
-                    Text(r.value,
-                        style: const TextStyle(
-                            color: AppColors.textPrimary,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500)),
+          ...rows.map(
+            (r) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Row(
+                children: [
+                  if (r.label.isNotEmpty) ...[
+                    Text(
+                      r.label,
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const Spacer(),
                   ],
-                ),
-              )),
+                  Text(
+                    r.value,
+                    style: const TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );

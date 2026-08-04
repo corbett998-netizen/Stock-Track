@@ -10,8 +10,10 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../data/models/product.dart';
+import '../../data/models/work_order.dart';
 import '../../data/providers/inventory_providers.dart';
 import '../../data/providers/repository_providers.dart';
+import '../../data/providers/work_order_providers.dart';
 import '../inventory/product_detail_screen.dart';
 
 /// Best-effort catalog/serial numbers read from the label's printed text
@@ -367,7 +369,9 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
               quantity: serial != null ? 1 : 0,
               unit: 'units',
               minStock: 0,
-              serials: serial != null ? [serial] : const [],
+              serials: serial != null
+                  ? [SerialRecord(serial: serial)]
+                  : const [],
             ),
           ),
         ),
@@ -377,7 +381,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
       return;
     }
 
-    if (serial != null && product.serials.contains(serial)) {
+    if (serial != null && product.serials.any((r) => r.serial == serial)) {
       setState(() {
         _duplicateProduct = product;
         _duplicateSerial = serial;
@@ -442,6 +446,63 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
     _resumeScanning();
   }
 
+  Future<void> _attachDuplicateToWorkOrder() async {
+    final product = _duplicateProduct;
+    final serial = _duplicateSerial;
+    if (product == null || serial == null) return;
+
+    final order = await showModalBottomSheet<WorkOrder>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _WorkOrderPicker(),
+    );
+    if (order == null || !mounted) return;
+
+    final label = (order.customerName?.isNotEmpty ?? false)
+        ? order.customerName!
+        : order.address;
+
+    await ref
+        .read(inventoryRepositoryProvider)
+        .attachSerialToWorkOrder(
+          productId: product.id,
+          serial: serial,
+          workOrderId: order.id,
+          workOrderLabel: label,
+        );
+    await ref
+        .read(workOrderRepositoryProvider)
+        .attachProductSerial(
+          workOrderId: order.id,
+          productId: product.id,
+          productName: product.name,
+          serial: serial,
+        );
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Attached $serial to the work order at $label')),
+    );
+    _dismissDuplicate();
+  }
+
+  Future<void> _markDuplicateInstalled() async {
+    final product = _duplicateProduct;
+    final serial = _duplicateSerial;
+    if (product == null || serial == null) return;
+
+    await ref
+        .read(inventoryRepositoryProvider)
+        .markSerialInstalled(productId: product.id, serial: serial);
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('Marked $serial as installed')));
+    _dismissDuplicate();
+  }
+
   void _resumeScanning() {
     _frozenImage = null;
     _reviewingCapture = false;
@@ -493,6 +554,8 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
             ? _DuplicateNotice(
                 product: _duplicateProduct!,
                 serial: _duplicateSerial!,
+                onAttachToWorkOrder: _attachDuplicateToWorkOrder,
+                onMarkInstalled: _markDuplicateInstalled,
                 onDismiss: _dismissDuplicate,
               )
             : _matchedProduct != null
@@ -867,11 +930,15 @@ class _DuplicateNotice extends StatelessWidget {
   const _DuplicateNotice({
     required this.product,
     required this.serial,
+    required this.onAttachToWorkOrder,
+    required this.onMarkInstalled,
     required this.onDismiss,
   });
 
   final Product product;
   final String serial;
+  final VoidCallback onAttachToWorkOrder;
+  final VoidCallback onMarkInstalled;
   final VoidCallback onDismiss;
 
   @override
@@ -894,7 +961,7 @@ class _DuplicateNotice extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'Serial $serial is already recorded on ${product.name}.',
+            'Serial $serial is already recorded on ${product.name}. What do you want to do with this unit?',
             textAlign: TextAlign.center,
             style: const TextStyle(
               color: AppColors.textSecondary,
@@ -902,20 +969,141 @@ class _DuplicateNotice extends StatelessWidget {
             ),
           ),
           const Spacer(),
-          FilledButton(
-            onPressed: onDismiss,
+          FilledButton.icon(
+            onPressed: onAttachToWorkOrder,
             style: FilledButton.styleFrom(
               backgroundColor: AppColors.primaryBlue,
               foregroundColor: Colors.white,
+              minimumSize: const Size.fromHeight(52),
+            ),
+            icon: const Icon(Icons.assignment_outlined),
+            label: const Text('Attach to a work order'),
+          ),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: onMarkInstalled,
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.inStockGreen,
+              foregroundColor: Colors.white,
+              minimumSize: const Size.fromHeight(52),
+            ),
+            icon: const Icon(Icons.check_circle_outline),
+            label: const Text('Mark as installed'),
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton(
+            onPressed: onDismiss,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.textSecondary,
+              side: const BorderSide(color: AppColors.surfaceBorder),
               minimumSize: const Size.fromHeight(48),
             ),
-            child: const Text('OK'),
+            child: const Text('Cancel'),
           ),
         ],
       ),
     );
   }
 }
+
+// ── Work-order picker (bottom sheet) ────────────────────────────────────────────
+
+class _WorkOrderPicker extends ConsumerWidget {
+  const _WorkOrderPicker();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final ordersAsync = ref.watch(workOrdersProvider);
+    return SafeArea(
+      child: Container(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.75,
+        ),
+        decoration: const BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 16, 20, 8),
+              child: Text(
+                'Attach to which work order?',
+                style: TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const Divider(height: 1, color: AppColors.surfaceBorder),
+            Flexible(
+              child: ordersAsync.when(
+                loading: () => const Padding(
+                  padding: EdgeInsets.all(32),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+                error: (e, _) => Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text(
+                    'Could not load work orders: $e',
+                    style: const TextStyle(color: AppColors.lowOrange),
+                  ),
+                ),
+                data: (orders) => orders.isEmpty
+                    ? const Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Text(
+                          'No work orders yet.',
+                          style: TextStyle(color: AppColors.textSecondary),
+                        ),
+                      )
+                    : ListView.builder(
+                        shrinkWrap: true,
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        itemCount: orders.length,
+                        itemBuilder: (context, i) {
+                          final o = orders[i];
+                          final title = (o.customerName?.isNotEmpty ?? false)
+                              ? o.customerName!
+                              : o.address;
+                          final subtitleParts = [
+                            o.installerName,
+                            if (o.installDate != null)
+                              _formatDate(o.installDate!),
+                          ];
+                          return ListTile(
+                            title: Text(
+                              title,
+                              style: const TextStyle(
+                                color: AppColors.textPrimary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            subtitle: Text(
+                              subtitleParts.join(' · '),
+                              style: const TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: 12,
+                              ),
+                            ),
+                            onTap: () => Navigator.of(context).pop(o),
+                          );
+                        },
+                      ),
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _formatDate(DateTime d) => '${d.month}/${d.day}/${d.year}';
 
 // ── Single-unit serial confirm ────────────────────────────────────────────────
 

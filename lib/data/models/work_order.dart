@@ -27,11 +27,7 @@ enum WorkOrderReason {
 /// profiles land, this becomes a Firestore-backed collection — keep the shape
 /// stable so work orders written today stay readable.
 class Installer {
-  const Installer({
-    required this.name,
-    required this.license,
-    this.role,
-  });
+  const Installer({required this.name, required this.license, this.role});
 
   final String name;
   final String license;
@@ -49,28 +45,38 @@ class WorkOrderItem {
     required this.productId,
     required this.productName,
     this.quantity = 1,
+    this.serials = const [],
   });
 
   final String productId;
   final String productName;
   final int quantity;
 
+  /// Specific units (by serial) attached to this line, e.g. via the scan
+  /// flow's "attach to work order" action. May be shorter than [quantity]
+  /// if some of the quantity was added without scanning a specific unit.
+  final List<String> serials;
+
   factory WorkOrderItem.fromMap(Map<String, dynamic> m) => WorkOrderItem(
-        productId: m['productId'] as String? ?? '',
-        productName: m['productName'] as String? ?? '',
-        quantity: (m['quantity'] as num?)?.toInt() ?? 1,
-      );
+    productId: m['productId'] as String? ?? '',
+    productName: m['productName'] as String? ?? '',
+    quantity: (m['quantity'] as num?)?.toInt() ?? 1,
+    serials: (m['serials'] as List<dynamic>?)?.cast<String>() ?? const [],
+  );
 
   Map<String, dynamic> toMap() => {
-        'productId': productId,
-        'productName': productName,
-        'quantity': quantity,
-      };
+    'productId': productId,
+    'productName': productName,
+    'quantity': quantity,
+    if (serials.isNotEmpty) 'serials': serials,
+  };
 
-  WorkOrderItem copyWith({int? quantity}) => WorkOrderItem(
+  WorkOrderItem copyWith({int? quantity, List<String>? serials}) =>
+      WorkOrderItem(
         productId: productId,
         productName: productName,
         quantity: quantity ?? this.quantity,
+        serials: serials ?? this.serials,
       );
 }
 
@@ -143,7 +149,7 @@ class WorkOrder {
       scheduleNotes: d['scheduleNotes'] as String?,
       reason:
           WorkOrderReason.fromName(d['reason'] as String?) ??
-              WorkOrderReason.newInstall,
+          WorkOrderReason.newInstall,
       quote: d['quote'] is Map<String, dynamic>
           ? Quote.fromMap(d['quote'] as Map<String, dynamic>)
           : null,
@@ -151,17 +157,17 @@ class WorkOrder {
   }
 
   Map<String, dynamic> toMap() => {
-        'installerName': installerName,
-        'installerLicense': installerLicense,
-        if (customerId != null) 'customerId': customerId,
-        'address': address,
-        if (customerName != null) 'customerName': customerName,
-        'items': items.map((i) => i.toMap()).toList(),
-        if (equipmentNotes != null) 'equipmentNotes': equipmentNotes,
-        'createdAt': Timestamp.fromDate(createdAt),
-        if (installDate != null) 'installDate': Timestamp.fromDate(installDate!),
-        if (scheduleNotes != null) 'scheduleNotes': scheduleNotes,
-        'reason': reason.name,
-        if (quote != null) 'quote': quote!.toMap(),
-      };
+    'installerName': installerName,
+    'installerLicense': installerLicense,
+    if (customerId != null) 'customerId': customerId,
+    'address': address,
+    if (customerName != null) 'customerName': customerName,
+    'items': items.map((i) => i.toMap()).toList(),
+    if (equipmentNotes != null) 'equipmentNotes': equipmentNotes,
+    'createdAt': Timestamp.fromDate(createdAt),
+    if (installDate != null) 'installDate': Timestamp.fromDate(installDate!),
+    if (scheduleNotes != null) 'scheduleNotes': scheduleNotes,
+    'reason': reason.name,
+    if (quote != null) 'quote': quote!.toMap(),
+  };
 }

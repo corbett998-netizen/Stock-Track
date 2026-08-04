@@ -5,16 +5,21 @@ import '../models/work_order.dart';
 
 class WorkOrderRepository {
   WorkOrderRepository()
-      : _col = FirebaseFirestore.instance.collection('workOrders');
+    : _col = FirebaseFirestore.instance.collection('workOrders');
 
   final CollectionReference<Map<String, dynamic>> _col;
 
   Stream<List<WorkOrder>> watchWorkOrders() {
-    return _col.orderBy('createdAt', descending: true).snapshots().map(
+    return _col
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map(
           (snap) => snap.docs
-              .map((d) => WorkOrder.fromFirestore(
-                    d as DocumentSnapshot<Map<String, dynamic>>,
-                  ))
+              .map(
+                (d) => WorkOrder.fromFirestore(
+                  d as DocumentSnapshot<Map<String, dynamic>>,
+                ),
+              )
               .toList(),
         );
   }
@@ -26,6 +31,47 @@ class WorkOrderRepository {
 
   Future<void> updateWorkOrder(WorkOrder order) async {
     await _col.doc(order.id).set(order.toMap());
+  }
+
+  /// Attaches one scanned unit to an existing work order (the scan flow's
+  /// "attach to work order" action) — adds [serial] to that product's line
+  /// (creating the line, at quantity 1, if the product isn't on the order
+  /// yet) and bumps quantity for lines that don't already include it.
+  Future<void> attachProductSerial({
+    required String workOrderId,
+    required String productId,
+    required String productName,
+    required String serial,
+  }) async {
+    final ref = _col.doc(workOrderId);
+    await FirebaseFirestore.instance.runTransaction((tx) async {
+      final snap = await tx.get(ref as DocumentReference<Map<String, dynamic>>);
+      if (!snap.exists) {
+        throw StateError('No work order with id "$workOrderId"');
+      }
+      final order = WorkOrder.fromFirestore(snap);
+      final index = order.items.indexWhere((i) => i.productId == productId);
+      final List<WorkOrderItem> newItems;
+      if (index == -1) {
+        newItems = [
+          ...order.items,
+          WorkOrderItem(
+            productId: productId,
+            productName: productName,
+            serials: [serial],
+          ),
+        ];
+      } else {
+        final existing = order.items[index];
+        if (existing.serials.contains(serial)) return; // already attached
+        newItems = [...order.items];
+        newItems[index] = existing.copyWith(
+          quantity: existing.quantity + 1,
+          serials: [...existing.serials, serial],
+        );
+      }
+      tx.update(ref, {'items': newItems.map((i) => i.toMap()).toList()});
+    });
   }
 
   Future<void> deleteWorkOrder(String id) async {
