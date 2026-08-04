@@ -24,12 +24,17 @@ class _OcrGuess {
   final String? serial;
 }
 
+// (?:NO\.?|NUM(?:BER)?|#) — "NUM" alone would partially match inside the
+// full word "NUMBER" and then fail the trailing \b mid-word, leaving
+// "BER" (or worse, "Number: 12345" once a same-line value follows) stuck
+// to the caption match. Spelling out NUM(?:BER)? avoids that dangling
+// partial match entirely.
 final _catalogLabelPattern = RegExp(
-  r'\b(CAT(?:ALOG)?\.?\s*(?:NO|NUM|#)?|MODEL\.?\s*(?:NO|NUM|#)?|P\s*/\s*N|PART\.?\s*(?:NO|NUM|#)?)\b\.?\s*[:\-]?',
+  r'\b(CAT(?:ALOG)?\.?\s*(?:NO\.?|NUM(?:BER)?|#)?|MODEL\.?\s*(?:NO\.?|NUM(?:BER)?|#)?|P\s*/\s*N|PART\.?\s*(?:NO\.?|NUM(?:BER)?|#)?)\b\.?\s*[:\-]?',
   caseSensitive: false,
 );
 final _serialLabelPattern = RegExp(
-  r'\b(S\s*/\s*N|SERIAL\.?\s*(?:NO|NUM|#)?)\b\.?\s*[:\-]?',
+  r'\b(S\s*/\s*N|SERIAL\.?\s*(?:NO\.?|NUM(?:BER)?|#)?)\b\.?\s*[:\-]?',
   caseSensitive: false,
 );
 
@@ -100,6 +105,51 @@ _OcrGuess _guessCatalogAndSerial(RecognizedText text) {
   );
 }
 
+/// A rough score for how much a detected line "looks like" a part/model/
+/// serial number rather than an incidental digit inside a sentence —
+/// favors short, alphanumeric-dense strings. Used to rank the dropdown
+/// options offered for each field.
+double _valueLikelihoodScore(String s) {
+  if (s.isEmpty) return 0;
+  final alnum = RegExp(r'[A-Za-z0-9]').allMatches(s).length;
+  final digits = RegExp(r'[0-9]').allMatches(s).length;
+  final density = alnum / s.length;
+  final digitRatio = digits / s.length;
+  final lengthPenalty = s.length > 24 ? 0.4 : 1.0;
+  return (density * 0.5 + digitRatio * 0.5) * lengthPenalty;
+}
+
+/// Every detected line that contains a digit (so could plausibly be a
+/// part/model/serial number), deduplicated and ranked best-first.
+List<String> _numericCandidates(RecognizedText text) {
+  final seen = <String>{};
+  final candidates = <String>[];
+  for (final block in text.blocks) {
+    for (final line in block.lines) {
+      final t = line.text.trim();
+      if (t.isEmpty || !_looksLikeValue.hasMatch(t)) continue;
+      if (seen.add(t)) candidates.add(t);
+    }
+  }
+  candidates.sort(
+    (a, b) => _valueLikelihoodScore(b).compareTo(_valueLikelihoodScore(a)),
+  );
+  return candidates;
+}
+
+/// Up to [max] dropdown options for a field: the heuristic's guess first
+/// (if any), then other plausible numeric candidates found on the label.
+List<String> _buildOptions(String? guess, List<String> pool, {int max = 4}) {
+  final options = <String>[];
+  if (guess != null && guess.isNotEmpty) options.add(guess);
+  for (final c in pool) {
+    if (options.length >= max) break;
+    if (options.contains(c)) continue;
+    options.add(c);
+  }
+  return options;
+}
+
 class ScanScreen extends ConsumerStatefulWidget {
   const ScanScreen({super.key});
 
@@ -120,24 +170,21 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
   Uint8List? _latestFrame;
 
   // Freeze-frame review, shown after a manual capture. Catalog/serial are
-  // pre-filled with an OCR best guess but stay fully editable — the user
-  // confirms (or picks from the raw detected text) before anything is
-  // looked up or saved.
+  // each a dropdown of up to 4 plausible numbers found on the label (the
+  // heuristic's guess first, then other numeric-looking candidates) — the
+  // user picks the right one instead of typing. If OCR found no numeric
+  // candidates at all for a field, options is empty and the corresponding
+  // controller becomes a plain manual-entry fallback.
   Uint8List? _frozenImage;
   bool _reviewingCapture = false;
   bool _ocrRunning = false;
   final _catalogController = TextEditingController();
   final _serialController = TextEditingController();
-  final _catalogFocus = FocusNode();
-  final _serialFocus = FocusNode();
   final _textRecognizer = TextRecognizer();
-  List<String> _detectedLines = [];
-
-  // Tracks which field to fill when a detected-text chip is tapped. Set via
-  // focus-gained listeners rather than read live at tap time, because
-  // tapping a Chip can itself steal focus from the text field first —
-  // checking `.hasFocus` at that point would be unreliable.
-  bool _lastFocusWasSerial = false;
+  List<String> _catalogOptions = [];
+  List<String> _serialOptions = [];
+  String? _selectedCatalog;
+  String? _selectedSerial;
 
   // Existing-product match — either a one-tap "log this unit" confirm
   // (when we captured a serial) or the bulk quantity stepper (when we
@@ -154,24 +201,11 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
   bool _torchOn = false;
 
   @override
-  void initState() {
-    super.initState();
-    _catalogFocus.addListener(() {
-      if (_catalogFocus.hasFocus) _lastFocusWasSerial = false;
-    });
-    _serialFocus.addListener(() {
-      if (_serialFocus.hasFocus) _lastFocusWasSerial = true;
-    });
-  }
-
-  @override
   void dispose() {
     _barcodeController.dispose();
     _cameraController.dispose();
     _catalogController.dispose();
     _serialController.dispose();
-    _catalogFocus.dispose();
-    _serialFocus.dispose();
     _textRecognizer.close();
     super.dispose();
   }
@@ -196,7 +230,10 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
       _ocrRunning = true;
       _catalogController.clear();
       _serialController.clear();
-      _detectedLines = [];
+      _catalogOptions = [];
+      _serialOptions = [];
+      _selectedCatalog = null;
+      _selectedSerial = null;
     });
 
     try {
@@ -214,44 +251,57 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
         // Best-effort cleanup only.
       }
 
-      final lines = [
-        for (final block in recognized.blocks)
-          for (final line in block.lines) line.text.trim(),
-      ].where((t) => t.isNotEmpty).toList();
       final guess = _guessCatalogAndSerial(recognized);
+      final pool = _numericCandidates(recognized);
+      final catalogOptions = _buildOptions(guess.catalog, pool);
+      final serialOptions = _buildOptions(guess.serial, pool);
 
       if (mounted) {
         setState(() {
-          _detectedLines = lines;
-          if (guess.catalog != null) _catalogController.text = guess.catalog!;
-          if (guess.serial != null) _serialController.text = guess.serial!;
+          _catalogOptions = catalogOptions;
+          _serialOptions = serialOptions;
+          _selectedCatalog = catalogOptions.firstOrNull;
+          _selectedSerial = serialOptions.firstOrNull;
+          _catalogController.text = _selectedCatalog ?? '';
+          _serialController.text = _selectedSerial ?? '';
         });
       }
     } catch (_) {
-      // OCR is best-effort — fields just stay empty for manual entry if it
-      // fails entirely (no camera/network dependency, so failure here is
-      // rare, but nothing else in the flow should block on it).
+      // OCR is best-effort — options stay empty, falling back to manual
+      // entry, if it fails entirely (no camera/network dependency, so
+      // failure here is rare, but nothing else should block on it).
     }
 
     if (!mounted) return;
     setState(() => _ocrRunning = false);
   }
 
-  /// Fills whichever of the two fields was last focused (defaults to
-  /// catalog) with a tapped line from the raw OCR output — a one-tap fix
-  /// when the auto-guess picked the wrong text.
-  void _applyDetectedLine(String text) {
-    if (_lastFocusWasSerial) {
-      _serialController.text = text;
-    } else {
-      _catalogController.text = text;
-    }
+  void _onCatalogSelected(String? value) {
+    setState(() {
+      _selectedCatalog = value;
+      _catalogController.text = value ?? '';
+    });
+  }
+
+  void _onSerialSelected(String? value) {
+    setState(() {
+      _selectedSerial = value;
+      _serialController.text = value ?? '';
+    });
   }
 
   Future<void> _confirmCapture() async {
-    final catalog = _catalogController.text.trim();
+    final catalog =
+        (_catalogOptions.isEmpty
+                ? _catalogController.text
+                : (_selectedCatalog ?? ''))
+            .trim();
     if (catalog.isEmpty) return;
-    final serial = _serialController.text.trim();
+    final serial =
+        (_serialOptions.isEmpty
+                ? _serialController.text
+                : (_selectedSerial ?? ''))
+            .trim();
     setState(() => _reviewingCapture = false);
     await _lookup(catalog, serial: serial.isEmpty ? null : serial);
   }
@@ -369,7 +419,10 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
     _ocrRunning = false;
     _catalogController.clear();
     _serialController.clear();
-    _detectedLines = [];
+    _catalogOptions = [];
+    _serialOptions = [];
+    _selectedCatalog = null;
+    _selectedSerial = null;
     _latestFrame = null;
     _cameraController.start();
     setState(() => _scanning = true);
@@ -433,11 +486,13 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
                 image: _frozenImage,
                 catalogController: _catalogController,
                 serialController: _serialController,
-                catalogFocus: _catalogFocus,
-                serialFocus: _serialFocus,
+                catalogOptions: _catalogOptions,
+                serialOptions: _serialOptions,
+                selectedCatalog: _selectedCatalog,
+                selectedSerial: _selectedSerial,
+                onCatalogSelected: _onCatalogSelected,
+                onSerialSelected: _onSerialSelected,
                 ocrRunning: _ocrRunning,
-                detectedLines: _detectedLines,
-                onSelectLine: _applyDetectedLine,
                 onConfirm: _confirmCapture,
                 onRetake: _resumeScanning,
               )
@@ -553,11 +608,13 @@ class _FrozenReview extends StatelessWidget {
     required this.image,
     required this.catalogController,
     required this.serialController,
-    required this.catalogFocus,
-    required this.serialFocus,
+    required this.catalogOptions,
+    required this.serialOptions,
+    required this.selectedCatalog,
+    required this.selectedSerial,
+    required this.onCatalogSelected,
+    required this.onSerialSelected,
     required this.ocrRunning,
-    required this.detectedLines,
-    required this.onSelectLine,
     required this.onConfirm,
     required this.onRetake,
   });
@@ -565,11 +622,13 @@ class _FrozenReview extends StatelessWidget {
   final Uint8List? image;
   final TextEditingController catalogController;
   final TextEditingController serialController;
-  final FocusNode catalogFocus;
-  final FocusNode serialFocus;
+  final List<String> catalogOptions;
+  final List<String> serialOptions;
+  final String? selectedCatalog;
+  final String? selectedSerial;
+  final ValueChanged<String?> onCatalogSelected;
+  final ValueChanged<String?> onSerialSelected;
   final bool ocrRunning;
-  final List<String> detectedLines;
-  final ValueChanged<String> onSelectLine;
   final VoidCallback onConfirm;
   final VoidCallback onRetake;
 
@@ -655,49 +714,25 @@ class _FrozenReview extends StatelessWidget {
         Text(
           ocrRunning
               ? 'Reading the label…'
-              : "Check these against the label — edit anything that's wrong.",
+              : 'Pick the right number for each field — or type it in if none match.',
           style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
         ),
         const SizedBox(height: 12),
-        TextField(
+        _NumberPicker(
+          label: 'Catalog number',
+          options: catalogOptions,
+          selected: selectedCatalog,
           controller: catalogController,
-          focusNode: catalogFocus,
-          style: const TextStyle(color: AppColors.textPrimary),
-          decoration: const InputDecoration(labelText: 'Catalog number'),
+          onSelected: onCatalogSelected,
         ),
         const SizedBox(height: 12),
-        TextField(
+        _NumberPicker(
+          label: 'Serial number (optional)',
+          options: serialOptions,
+          selected: selectedSerial,
           controller: serialController,
-          focusNode: serialFocus,
-          style: const TextStyle(color: AppColors.textPrimary),
-          decoration: const InputDecoration(
-            labelText: 'Serial number (optional)',
-          ),
+          onSelected: onSerialSelected,
         ),
-        if (detectedLines.isNotEmpty) ...[
-          const SizedBox(height: 16),
-          const Text(
-            'Detected on label — tap to use (fills whichever field you tapped last):',
-            style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final line in detectedLines)
-                ActionChip(
-                  label: Text(line),
-                  backgroundColor: AppColors.surfaceAlt,
-                  labelStyle: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 12,
-                  ),
-                  onPressed: () => onSelectLine(line),
-                ),
-            ],
-          ),
-        ],
         const SizedBox(height: 20),
         FilledButton(
           onPressed: ocrRunning ? null : onConfirm,
@@ -722,6 +757,50 @@ class _FrozenReview extends StatelessWidget {
           child: const Text('Retake'),
         ),
       ],
+    );
+  }
+}
+
+/// A dropdown of up to 4 plausible values for a field. Falls back to a
+/// plain text field when OCR found no numeric candidates at all, so a
+/// label OCR can't read isn't a dead end.
+class _NumberPicker extends StatelessWidget {
+  const _NumberPicker({
+    required this.label,
+    required this.options,
+    required this.selected,
+    required this.controller,
+    required this.onSelected,
+  });
+
+  final String label;
+  final List<String> options;
+  final String? selected;
+  final TextEditingController controller;
+  final ValueChanged<String?> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    if (options.isEmpty) {
+      return TextField(
+        controller: controller,
+        style: const TextStyle(color: AppColors.textPrimary),
+        decoration: InputDecoration(
+          labelText: label,
+          helperText: 'No numbers detected — enter manually',
+        ),
+      );
+    }
+    return DropdownButtonFormField<String>(
+      initialValue: options.contains(selected) ? selected : null,
+      isExpanded: true,
+      decoration: InputDecoration(labelText: label),
+      style: const TextStyle(color: AppColors.textPrimary, fontSize: 15),
+      items: [
+        for (final option in options)
+          DropdownMenuItem(value: option, child: Text(option)),
+      ],
+      onChanged: onSelected,
     );
   }
 }
