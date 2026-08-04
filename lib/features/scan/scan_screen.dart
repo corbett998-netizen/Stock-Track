@@ -154,45 +154,39 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
       return;
     }
 
-    // Barcode corner data can be unavailable for some formats/platforms
-    // (Barcode.corners is documented as empty when it "can not be
-    // determined"). When that happens we can't map any barcode into the
-    // finder box, so fall back to the simpler "same codes held steady"
-    // check rather than never capturing at all.
+    // Only barcodes that are themselves fully inside the finder box count —
+    // this ignores stray labels elsewhere in frame and only fires once the
+    // scanned label is aligned where the user was told to put it.
+    //
+    // Exception: Barcode.corners is documented as empty when corner data
+    // "can not be determined" — this can happen per-barcode (e.g. one
+    // symbology on the label reports corners reliably, another doesn't).
+    // A barcode we can't place is trusted rather than silently dropped,
+    // so one unreliable code doesn't block capture of everything else.
     final textureSize = capture.size;
     final canMapCoordinates = textureSize.width > 0 &&
         textureSize.height > 0 &&
         viewportSize.width > 0 &&
-        viewportSize.height > 0 &&
-        codes.any((c) => c.corners.isNotEmpty);
+        viewportSize.height > 0;
+    final box = canMapCoordinates
+        ? Rect.fromCenter(
+            center: viewportSize.center(Offset.zero),
+            width: _finderBoxSizeFor(viewportSize).width,
+            height: _finderBoxSizeFor(viewportSize).height,
+          )
+        : null;
 
-    List<Barcode> relevant;
-    if (canMapCoordinates) {
-      // Only barcodes that are themselves fully inside the finder box
-      // count — this ignores stray labels elsewhere in frame and only
-      // fires once the scanned label is aligned where the user was told
-      // to put it.
-      final boxSize = _finderBoxSizeFor(viewportSize);
-      final box = Rect.fromCenter(
-        center: viewportSize.center(Offset.zero),
-        width: boxSize.width,
-        height: boxSize.height,
+    final relevant = codes.where((code) {
+      if (box == null || code.corners.isEmpty) return true;
+      final rect = _barcodeRectInWidgetSpace(
+        code,
+        textureSize: textureSize,
+        widgetSize: viewportSize,
       );
-      relevant = [
-        for (final code in codes)
-          if (_barcodeRectInWidgetSpace(
-                code,
-                textureSize: textureSize,
-                widgetSize: viewportSize,
-              )
-              case final rect? when _rectFullyInside(rect, box))
-            code,
-      ];
-      _setAligned(relevant.isNotEmpty);
-    } else {
-      relevant = codes;
-      _setAligned(false);
-    }
+      return rect != null && _rectFullyInside(rect, box);
+    }).toList();
+
+    _setAligned(relevant.isNotEmpty);
 
     if (relevant.isEmpty) {
       _pendingSignature = null;
