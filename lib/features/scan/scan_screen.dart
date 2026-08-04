@@ -147,47 +147,60 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
     final codes = capture.barcodes
         .where((b) => b.rawValue != null && b.rawValue!.isNotEmpty)
         .toList();
+    if (codes.isEmpty) {
+      _pendingSignature = null;
+      _pendingSince = null;
+      _setAligned(false);
+      return;
+    }
+
+    // Barcode corner data can be unavailable for some formats/platforms
+    // (Barcode.corners is documented as empty when it "can not be
+    // determined"). When that happens we can't map any barcode into the
+    // finder box, so fall back to the simpler "same codes held steady"
+    // check rather than never capturing at all.
     final textureSize = capture.size;
-    if (codes.isEmpty ||
-        textureSize.width <= 0 ||
-        textureSize.height <= 0 ||
-        viewportSize.width <= 0 ||
-        viewportSize.height <= 0) {
+    final canMapCoordinates = textureSize.width > 0 &&
+        textureSize.height > 0 &&
+        viewportSize.width > 0 &&
+        viewportSize.height > 0 &&
+        codes.any((c) => c.corners.isNotEmpty);
+
+    List<Barcode> relevant;
+    if (canMapCoordinates) {
+      // Only barcodes that are themselves fully inside the finder box
+      // count — this ignores stray labels elsewhere in frame and only
+      // fires once the scanned label is aligned where the user was told
+      // to put it.
+      final boxSize = _finderBoxSizeFor(viewportSize);
+      final box = Rect.fromCenter(
+        center: viewportSize.center(Offset.zero),
+        width: boxSize.width,
+        height: boxSize.height,
+      );
+      relevant = [
+        for (final code in codes)
+          if (_barcodeRectInWidgetSpace(
+                code,
+                textureSize: textureSize,
+                widgetSize: viewportSize,
+              )
+              case final rect? when _rectFullyInside(rect, box))
+            code,
+      ];
+      _setAligned(relevant.isNotEmpty);
+    } else {
+      relevant = codes;
+      _setAligned(false);
+    }
+
+    if (relevant.isEmpty) {
       _pendingSignature = null;
       _pendingSince = null;
-      _setAligned(false);
       return;
     }
 
-    // Only barcodes that are themselves fully inside the finder box count —
-    // this ignores stray labels elsewhere in frame and only fires once the
-    // scanned label is actually aligned where the user was told to put it.
-    final boxSize = _finderBoxSizeFor(viewportSize);
-    final box = Rect.fromCenter(
-      center: viewportSize.center(Offset.zero),
-      width: boxSize.width,
-      height: boxSize.height,
-    );
-    final inBox = <Barcode>[
-      for (final code in codes)
-        if (_barcodeRectInWidgetSpace(
-              code,
-              textureSize: textureSize,
-              widgetSize: viewportSize,
-            )
-            case final rect? when _rectFullyInside(rect, box))
-          code,
-    ];
-
-    if (inBox.isEmpty) {
-      _pendingSignature = null;
-      _pendingSince = null;
-      _setAligned(false);
-      return;
-    }
-
-    _setAligned(true);
-    final signature = inBox.map((b) => b.rawValue!).toList()..sort();
+    final signature = relevant.map((b) => b.rawValue!).toList()..sort();
     final now = DateTime.now();
 
     if (!listEquals(signature, _pendingSignature)) {
@@ -199,7 +212,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
     if (_pendingSince != null && now.difference(_pendingSince!) >= _stabilityHold) {
       _pendingSignature = null;
       _pendingSince = null;
-      _captureStable(capture, inBox);
+      _captureStable(capture, relevant);
     }
   }
 
@@ -465,13 +478,15 @@ class _ScannerView extends StatelessWidget {
                 return Stack(
                   fit: StackFit.expand,
                   children: [
+                    // No scanWindow here deliberately — filtering barcodes
+                    // by position happens in Dart (onDetect below), which we
+                    // can verify against real capture data. The native
+                    // scanWindow uses its own coordinate transform we can't
+                    // easily verify, and if it were even slightly wrong it
+                    // would silently drop every barcode before it ever
+                    // reaches onDetect.
                     MobileScanner(
                       controller: cameraController,
-                      scanWindow: Rect.fromCenter(
-                        center: viewportSize.center(Offset.zero),
-                        width: boxSize.width,
-                        height: boxSize.height,
-                      ),
                       onDetect: (capture) => onDetect(capture, viewportSize),
                     ),
                     // Finder overlay — the label must sit fully inside this
