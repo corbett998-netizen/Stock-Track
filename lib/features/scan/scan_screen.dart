@@ -25,7 +25,7 @@ class _OcrGuess {
 }
 
 final _catalogLabelPattern = RegExp(
-  r'\b(CAT(?:ALOG)?\.?\s*(?:NO|NUM|#)?|MODEL\.?\s*(?:NO|NUM|#)?)\b\.?\s*[:\-]?',
+  r'\b(CAT(?:ALOG)?\.?\s*(?:NO|NUM|#)?|MODEL\.?\s*(?:NO|NUM|#)?|P\s*/\s*N|PART\.?\s*(?:NO|NUM|#)?)\b\.?\s*[:\-]?',
   caseSensitive: false,
 );
 final _serialLabelPattern = RegExp(
@@ -34,45 +34,59 @@ final _serialLabelPattern = RegExp(
 );
 
 /// Scans recognized text lines for common nameplate labels ("MODEL NO.",
-/// "CAT #", "SERIAL NO.", "S/N") and returns the value next to or below
-/// each one, if found. This is a heuristic, not a guarantee — the caller
-/// is expected to let the user review/correct the result.
+/// "CAT #", "SERIAL NO.", "S/N") and returns the value printed near each
+/// one, if found. Nameplates typically print the caption directly above a
+/// barcode and the human-readable value directly below it — the barcode
+/// itself produces no OCR text, so "below" has to be found by comparing
+/// each line's actual on-image position, not by list order (ML Kit doesn't
+/// guarantee lines come back in top-to-bottom reading order). This is a
+/// heuristic, not a guarantee — the caller is expected to let the user
+/// review/correct the result (and pick from the raw detected lines).
 _OcrGuess _guessCatalogAndSerial(RecognizedText text) {
   final lines = [for (final block in text.blocks) ...block.lines];
 
-  String? extractNearValue(RegExp labelPattern, int lineIndex) {
-    final line = lines[lineIndex].text.trim();
-    final match = labelPattern.firstMatch(line);
-    if (match != null) {
-      final sameLineValue = line.substring(match.end).trim();
+  String? findValue(RegExp labelPattern) {
+    for (final captionLine in lines) {
+      final captionText = captionLine.text.trim();
+      final match = labelPattern.firstMatch(captionText);
+      if (match == null) continue;
+
+      // Caption and value on the same line (e.g. "MODEL NO: ABC123").
+      final sameLineValue = captionText.substring(match.end).trim();
       if (sameLineValue.isNotEmpty) return sameLineValue;
-    }
-    if (lineIndex + 1 < lines.length) {
-      final nextLine = lines[lineIndex + 1].text.trim();
-      if (nextLine.isNotEmpty && !labelPattern.hasMatch(nextLine)) {
-        return nextLine;
+
+      // Otherwise, find the closest line that sits below this caption and
+      // roughly lines up with it horizontally (allowing generous slack,
+      // since the value is centered under a barcode that may be a
+      // different width than the caption text above it).
+      final captionBox = captionLine.boundingBox;
+      TextLine? best;
+      double bestGap = double.infinity;
+      for (final candidate in lines) {
+        if (identical(candidate, captionLine)) continue;
+        if (labelPattern.hasMatch(candidate.text)) continue;
+        final box = candidate.boundingBox;
+        final verticalGap = box.top - captionBox.bottom;
+        if (verticalGap < -captionBox.height * 0.3) continue; // not below
+        final horizontalOffset = (box.center.dx - captionBox.center.dx).abs();
+        if (horizontalOffset > captionBox.width + box.width) continue;
+        if (verticalGap < bestGap) {
+          bestGap = verticalGap;
+          best = candidate;
+        }
+      }
+      if (best != null) {
+        final value = best.text.trim();
+        if (value.isNotEmpty) return value;
       }
     }
     return null;
   }
 
-  String? catalog;
-  String? serial;
-  for (
-    var i = 0;
-    i < lines.length && (catalog == null || serial == null);
-    i++
-  ) {
-    final line = lines[i].text;
-    if (catalog == null && _catalogLabelPattern.hasMatch(line)) {
-      catalog = extractNearValue(_catalogLabelPattern, i);
-    }
-    if (serial == null && _serialLabelPattern.hasMatch(line)) {
-      serial = extractNearValue(_serialLabelPattern, i);
-    }
-  }
-
-  return _OcrGuess(catalog: catalog, serial: serial);
+  return _OcrGuess(
+    catalog: findValue(_catalogLabelPattern),
+    serial: findValue(_serialLabelPattern),
+  );
 }
 
 class ScanScreen extends ConsumerStatefulWidget {
