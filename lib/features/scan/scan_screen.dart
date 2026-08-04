@@ -33,6 +33,13 @@ final _serialLabelPattern = RegExp(
   caseSensitive: false,
 );
 
+/// A plausible catalog/serial value has to actually contain a digit — real
+/// part/model/serial numbers always do. This is what rules out a caption
+/// like "CATALOG NUMBER" (or a stray leftover word fragment from matching
+/// the caption pattern against it) from ever being mistaken for the value
+/// itself.
+final _looksLikeValue = RegExp(r'\d');
+
 /// Scans recognized text lines for common nameplate labels ("MODEL NO.",
 /// "CAT #", "SERIAL NO.", "S/N") and returns the value printed near each
 /// one, if found. Nameplates typically print the caption directly above a
@@ -51,20 +58,27 @@ _OcrGuess _guessCatalogAndSerial(RecognizedText text) {
       final match = labelPattern.firstMatch(captionText);
       if (match == null) continue;
 
-      // Caption and value on the same line (e.g. "MODEL NO: ABC123").
+      // Caption and value on the same line (e.g. "MODEL NO: ABC123") — but
+      // only trust it if what's left after the caption actually looks like
+      // a number, not a leftover word fragment from a caption-only line
+      // like "CATALOG NUMBER".
       final sameLineValue = captionText.substring(match.end).trim();
-      if (sameLineValue.isNotEmpty) return sameLineValue;
+      if (sameLineValue.isNotEmpty && _looksLikeValue.hasMatch(sameLineValue)) {
+        return sameLineValue;
+      }
 
-      // Otherwise, find the closest line that sits below this caption and
+      // Otherwise, find the closest line that sits below this caption,
       // roughly lines up with it horizontally (allowing generous slack,
       // since the value is centered under a barcode that may be a
-      // different width than the caption text above it).
+      // different width than the caption text above it), and actually
+      // looks like a number rather than another caption/label word.
       final captionBox = captionLine.boundingBox;
       TextLine? best;
       double bestGap = double.infinity;
       for (final candidate in lines) {
         if (identical(candidate, captionLine)) continue;
-        if (labelPattern.hasMatch(candidate.text)) continue;
+        final candidateText = candidate.text.trim();
+        if (!_looksLikeValue.hasMatch(candidateText)) continue;
         final box = candidate.boundingBox;
         final verticalGap = box.top - captionBox.bottom;
         if (verticalGap < -captionBox.height * 0.3) continue; // not below
@@ -75,10 +89,7 @@ _OcrGuess _guessCatalogAndSerial(RecognizedText text) {
           best = candidate;
         }
       }
-      if (best != null) {
-        final value = best.text.trim();
-        if (value.isNotEmpty) return value;
-      }
+      if (best != null) return best.text.trim();
     }
     return null;
   }
