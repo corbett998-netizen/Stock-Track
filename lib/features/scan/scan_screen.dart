@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
@@ -14,78 +13,6 @@ import '../../data/models/product.dart';
 import '../../data/providers/inventory_providers.dart';
 import '../../data/providers/repository_providers.dart';
 import '../inventory/product_detail_screen.dart';
-
-/// Size of the on-screen finder box the label must be aligned inside of
-/// before a capture is taken, as a fraction of the camera viewport.
-///
-/// Sized generously (most of the viewport) because real equipment labels
-/// often carry two separate barcodes (catalog + serial) spaced apart on the
-/// nameplate — a tight box only leaves room for one of them to be legible
-/// at once, silently dropping the serial.
-Size _finderBoxSizeFor(Size viewportSize) => Size(
-      viewportSize.width * 0.9,
-      viewportSize.height * 0.78,
-    );
-
-/// Once the label's barcodes are fully inside the finder box, how long that
-/// alignment must hold (debounce against a single blurry/transient frame)
-/// before we capture.
-const _stabilityHold = Duration(milliseconds: 500);
-
-/// Maps a point in camera-image (texture) space to a point in the on-screen
-/// widget space, replicating the same [BoxFit.cover] scaling the camera
-/// preview itself uses to fill the viewport.
-Offset _textureToWidget(
-  Offset point, {
-  required Size textureSize,
-  required Size widgetSize,
-}) {
-  final scale = math.max(
-    widgetSize.width / textureSize.width,
-    widgetSize.height / textureSize.height,
-  );
-  final scaledTextureSize = Size(
-    textureSize.width * scale,
-    textureSize.height * scale,
-  );
-  final origin =
-      Alignment.center.inscribe(scaledTextureSize, Offset.zero & widgetSize).topLeft;
-  return origin + point * scale;
-}
-
-/// The bounding rectangle of a barcode's corners, in on-screen widget space.
-/// Returns null if the barcode has no corner data.
-Rect? _barcodeRectInWidgetSpace(
-  Barcode barcode, {
-  required Size textureSize,
-  required Size widgetSize,
-}) {
-  if (barcode.corners.isEmpty) return null;
-
-  double left = double.infinity;
-  double top = double.infinity;
-  double right = double.negativeInfinity;
-  double bottom = double.negativeInfinity;
-  for (final corner in barcode.corners) {
-    final p = _textureToWidget(
-      corner,
-      textureSize: textureSize,
-      widgetSize: widgetSize,
-    );
-    if (p.dx < left) left = p.dx;
-    if (p.dx > right) right = p.dx;
-    if (p.dy < top) top = p.dy;
-    if (p.dy > bottom) bottom = p.dy;
-  }
-  return Rect.fromLTRB(left, top, right, bottom);
-}
-
-bool _rectFullyInside(Rect inner, Rect outer) {
-  return inner.left >= outer.left &&
-      inner.top >= outer.top &&
-      inner.right <= outer.right &&
-      inner.bottom <= outer.bottom;
-}
 
 /// Best-effort catalog/serial numbers read from the label's printed text
 /// (as opposed to a decoded barcode value, which often encodes something
@@ -131,7 +58,11 @@ _OcrGuess _guessCatalogAndSerial(RecognizedText text) {
 
   String? catalog;
   String? serial;
-  for (var i = 0; i < lines.length && (catalog == null || serial == null); i++) {
+  for (
+    var i = 0;
+    i < lines.length && (catalog == null || serial == null);
+    i++
+  ) {
     final line = lines[i].text;
     if (catalog == null && _catalogLabelPattern.hasMatch(line)) {
       catalog = extractNearValue(_catalogLabelPattern, i);
@@ -158,25 +89,30 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
     returnImage: true,
   );
 
-  // Stability tracking — how long has this exact set of in-box barcodes been
-  // held steady since the label became fully aligned in the finder box.
-  List<String>? _pendingSignature;
-  DateTime? _pendingSince;
+  // The most recently delivered camera frame, refreshed continuously while
+  // live — this is what "Capture" freezes when tapped. No barcode scanning
+  // is used at all; MobileScanner is just the camera preview/frame source.
+  Uint8List? _latestFrame;
 
-  // Whether the label is currently fully inside the finder box (drives the
-  // box's border color feedback).
-  bool _labelAligned = false;
-
-  // Freeze-frame review, shown right after a stable capture. Catalog/serial
-  // are pre-filled with a best guess (OCR text if found, else the decoded
-  // barcode value) but stay editable — the user confirms before we look up
-  // or save anything.
+  // Freeze-frame review, shown after a manual capture. Catalog/serial are
+  // pre-filled with an OCR best guess but stay fully editable — the user
+  // confirms (or picks from the raw detected text) before anything is
+  // looked up or saved.
   Uint8List? _frozenImage;
   bool _reviewingCapture = false;
   bool _ocrRunning = false;
   final _catalogController = TextEditingController();
   final _serialController = TextEditingController();
+  final _catalogFocus = FocusNode();
+  final _serialFocus = FocusNode();
   final _textRecognizer = TextRecognizer();
+  List<String> _detectedLines = [];
+
+  // Tracks which field to fill when a detected-text chip is tapped. Set via
+  // focus-gained listeners rather than read live at tap time, because
+  // tapping a Chip can itself steal focus from the text field first —
+  // checking `.hasFocus` at that point would be unreliable.
+  bool _lastFocusWasSerial = false;
 
   // Existing-product match — either a one-tap "log this unit" confirm
   // (when we captured a serial) or the bulk quantity stepper (when we
@@ -189,8 +125,19 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
   Product? _duplicateProduct;
   String? _duplicateSerial;
 
-  bool _scanning = true; // actively listening for a stable detection
+  bool _scanning = true; // actively feeding _latestFrame from the camera
   bool _torchOn = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _catalogFocus.addListener(() {
+      if (_catalogFocus.hasFocus) _lastFocusWasSerial = false;
+    });
+    _serialFocus.addListener(() {
+      if (_serialFocus.hasFocus) _lastFocusWasSerial = true;
+    });
+  }
 
   @override
   void dispose() {
@@ -198,141 +145,82 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
     _cameraController.dispose();
     _catalogController.dispose();
     _serialController.dispose();
+    _catalogFocus.dispose();
+    _serialFocus.dispose();
     _textRecognizer.close();
     super.dispose();
   }
 
-  void _setAligned(bool value) {
-    if (_labelAligned == value) return;
-    setState(() => _labelAligned = value);
-  }
-
-  void _onDetect(BarcodeCapture capture, Size viewportSize) {
+  void _onDetect(BarcodeCapture capture) {
     if (!_scanning) return;
-
-    final codes = capture.barcodes
-        .where((b) => b.rawValue != null && b.rawValue!.isNotEmpty)
-        .toList();
-    if (codes.isEmpty) {
-      _pendingSignature = null;
-      _pendingSince = null;
-      _setAligned(false);
-      return;
-    }
-
-    // Only barcodes that are themselves fully inside the finder box count —
-    // this ignores stray labels elsewhere in frame and only fires once the
-    // scanned label is aligned where the user was told to put it.
-    //
-    // Exception: Barcode.corners is documented as empty when corner data
-    // "can not be determined" — this can happen per-barcode (e.g. one
-    // symbology on the label reports corners reliably, another doesn't).
-    // A barcode we can't place is trusted rather than silently dropped,
-    // so one unreliable code doesn't block capture of everything else.
-    final textureSize = capture.size;
-    final canMapCoordinates = textureSize.width > 0 &&
-        textureSize.height > 0 &&
-        viewportSize.width > 0 &&
-        viewportSize.height > 0;
-    final box = canMapCoordinates
-        ? Rect.fromCenter(
-            center: viewportSize.center(Offset.zero),
-            width: _finderBoxSizeFor(viewportSize).width,
-            height: _finderBoxSizeFor(viewportSize).height,
-          )
-        : null;
-
-    final relevant = codes.where((code) {
-      if (box == null || code.corners.isEmpty) return true;
-      final rect = _barcodeRectInWidgetSpace(
-        code,
-        textureSize: textureSize,
-        widgetSize: viewportSize,
-      );
-      return rect != null && _rectFullyInside(rect, box);
-    }).toList();
-
-    _setAligned(relevant.isNotEmpty);
-
-    if (relevant.isEmpty) {
-      _pendingSignature = null;
-      _pendingSince = null;
-      return;
-    }
-
-    final signature = relevant.map((b) => b.rawValue!).toList()..sort();
-    final now = DateTime.now();
-
-    if (!listEquals(signature, _pendingSignature)) {
-      _pendingSignature = signature;
-      _pendingSince = now;
-      return;
-    }
-
-    if (_pendingSince != null && now.difference(_pendingSince!) >= _stabilityHold) {
-      _pendingSignature = null;
-      _pendingSince = null;
-      _captureStable(capture, relevant);
-    }
+    final image = capture.image;
+    if (image != null) _latestFrame = image;
   }
 
-  Future<void> _captureStable(BarcodeCapture capture, List<Barcode> codes) async {
+  Future<void> _captureNow() async {
+    final frame = _latestFrame;
+    if (frame == null) return;
+
     setState(() => _scanning = false);
     await _cameraController.stop();
-
-    // Barcode values are a fallback only — a decoded barcode (e.g. a
-    // UPC/GTIN) often doesn't match the catalog number actually printed on
-    // the label. The largest barcode is assumed catalog-ish, a second
-    // (smaller) one serial-ish, but OCR below takes priority when it finds
-    // a labeled match.
-    final bySize = [...codes]..sort(
-        (a, b) => (b.size.width * b.size.height)
-            .compareTo(a.size.width * a.size.height),
-      );
-    final barcodeCatalog = bySize.first.rawValue!;
-    final barcodeSerial = bySize.length > 1 ? bySize[1].rawValue : null;
-
     if (!mounted) return;
+
     setState(() {
-      _frozenImage = capture.image;
+      _frozenImage = frame;
       _reviewingCapture = true;
       _ocrRunning = true;
-      _catalogController.text = barcodeCatalog;
-      _serialController.text = barcodeSerial ?? '';
+      _catalogController.clear();
+      _serialController.clear();
+      _detectedLines = [];
     });
 
-    final imageBytes = capture.image;
-    if (imageBytes != null) {
+    try {
+      final tempDir = await getTemporaryDirectory();
+      final file = File(
+        '${tempDir.path}/stocktrack_scan_${DateTime.now().microsecondsSinceEpoch}.jpg',
+      );
+      await file.writeAsBytes(frame);
+      final recognized = await _textRecognizer.processImage(
+        InputImage.fromFilePath(file.path),
+      );
       try {
-        final tempDir = await getTemporaryDirectory();
-        final file = File(
-          '${tempDir.path}/stocktrack_scan_${DateTime.now().microsecondsSinceEpoch}.jpg',
-        );
-        await file.writeAsBytes(imageBytes);
-        final recognized = await _textRecognizer.processImage(
-          InputImage.fromFilePath(file.path),
-        );
-        try {
-          await file.delete();
-        } catch (_) {
-          // Best-effort cleanup only.
-        }
-
-        final guess = _guessCatalogAndSerial(recognized);
-        if (mounted) {
-          setState(() {
-            if (guess.catalog != null) _catalogController.text = guess.catalog!;
-            if (guess.serial != null) _serialController.text = guess.serial!;
-          });
-        }
+        await file.delete();
       } catch (_) {
-        // OCR is best-effort; the barcode-derived values already filled in
-        // above remain as the fallback.
+        // Best-effort cleanup only.
       }
+
+      final lines = [
+        for (final block in recognized.blocks)
+          for (final line in block.lines) line.text.trim(),
+      ].where((t) => t.isNotEmpty).toList();
+      final guess = _guessCatalogAndSerial(recognized);
+
+      if (mounted) {
+        setState(() {
+          _detectedLines = lines;
+          if (guess.catalog != null) _catalogController.text = guess.catalog!;
+          if (guess.serial != null) _serialController.text = guess.serial!;
+        });
+      }
+    } catch (_) {
+      // OCR is best-effort — fields just stay empty for manual entry if it
+      // fails entirely (no camera/network dependency, so failure here is
+      // rare, but nothing else in the flow should block on it).
     }
 
     if (!mounted) return;
     setState(() => _ocrRunning = false);
+  }
+
+  /// Fills whichever of the two fields was last focused (defaults to
+  /// catalog) with a tapped line from the raw OCR output — a one-tap fix
+  /// when the auto-guess picked the wrong text.
+  void _applyDetectedLine(String text) {
+    if (_lastFocusWasSerial) {
+      _serialController.text = text;
+    } else {
+      _catalogController.text = text;
+    }
   }
 
   Future<void> _confirmCapture() async {
@@ -456,9 +344,8 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
     _ocrRunning = false;
     _catalogController.clear();
     _serialController.clear();
-    _pendingSignature = null;
-    _pendingSince = null;
-    _labelAligned = false;
+    _detectedLines = [];
+    _latestFrame = null;
     _cameraController.start();
     setState(() => _scanning = true);
   }
@@ -468,10 +355,11 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
     final liveProduct = _matchedProduct == null
         ? null
         : (ref.watch(productsProvider).valueOrNull ?? [])
-            .where((p) => p.id == _matchedProduct!.id)
-            .firstOrNull;
+              .where((p) => p.id == _matchedProduct!.id)
+              .firstOrNull;
 
-    final showTorch = _matchedProduct == null &&
+    final showTorch =
+        _matchedProduct == null &&
         !_reviewingCapture &&
         _duplicateProduct == null;
 
@@ -501,36 +389,40 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
                 onDismiss: _dismissDuplicate,
               )
             : _matchedProduct != null
-                ? (_pendingSerial != null
-                    ? _SerialConfirm(
-                        product: liveProduct ?? _matchedProduct!,
-                        serial: _pendingSerial!,
-                        onConfirm: _confirmAdd,
-                        onCancel: _dismissMatch,
-                      )
-                    : _QuantityAdjuster(
-                        product: liveProduct ?? _matchedProduct!,
-                        qty: _qty,
-                        onQtyChanged: (v) => setState(() => _qty = v),
-                        onConfirm: _confirmAdd,
-                        onCancel: _dismissMatch,
-                      ))
-                : _reviewingCapture
-                    ? _FrozenReview(
-                        image: _frozenImage,
-                        catalogController: _catalogController,
-                        serialController: _serialController,
-                        ocrRunning: _ocrRunning,
-                        onConfirm: _confirmCapture,
-                        onRetake: _resumeScanning,
-                      )
-                    : _ScannerView(
-                        cameraController: _cameraController,
-                        barcodeController: _barcodeController,
-                        onLookup: (code) => _lookup(code),
-                        onDetect: _onDetect,
-                        labelAligned: _labelAligned,
-                      ),
+            ? (_pendingSerial != null
+                  ? _SerialConfirm(
+                      product: liveProduct ?? _matchedProduct!,
+                      serial: _pendingSerial!,
+                      onConfirm: _confirmAdd,
+                      onCancel: _dismissMatch,
+                    )
+                  : _QuantityAdjuster(
+                      product: liveProduct ?? _matchedProduct!,
+                      qty: _qty,
+                      onQtyChanged: (v) => setState(() => _qty = v),
+                      onConfirm: _confirmAdd,
+                      onCancel: _dismissMatch,
+                    ))
+            : _reviewingCapture
+            ? _FrozenReview(
+                image: _frozenImage,
+                catalogController: _catalogController,
+                serialController: _serialController,
+                catalogFocus: _catalogFocus,
+                serialFocus: _serialFocus,
+                ocrRunning: _ocrRunning,
+                detectedLines: _detectedLines,
+                onSelectLine: _applyDetectedLine,
+                onConfirm: _confirmCapture,
+                onRetake: _resumeScanning,
+              )
+            : _ScannerView(
+                cameraController: _cameraController,
+                barcodeController: _barcodeController,
+                onLookup: (code) => _lookup(code),
+                onDetect: _onDetect,
+                onCapture: _captureNow,
+              ),
       ),
     );
   }
@@ -544,31 +436,23 @@ class _ScannerView extends StatelessWidget {
     required this.barcodeController,
     required this.onLookup,
     required this.onDetect,
-    required this.labelAligned,
+    required this.onCapture,
   });
 
   final MobileScannerController cameraController;
   final TextEditingController barcodeController;
   final ValueChanged<String> onLookup;
-  final void Function(BarcodeCapture capture, Size viewportSize) onDetect;
-  final bool labelAligned;
+  final void Function(BarcodeCapture capture) onDetect;
+  final VoidCallback onCapture;
 
   @override
   Widget build(BuildContext context) {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
       children: [
-        Text(
-          labelAligned
-              ? 'Label aligned — hold steady…'
-              : 'Line the label up fully inside the box — catalog number and serial are captured automatically. Or enter a code manually.',
-          style: TextStyle(
-            color: labelAligned
-                ? AppColors.inStockGreen
-                : AppColors.textSecondary,
-            fontSize: 13,
-            fontWeight: labelAligned ? FontWeight.w700 : FontWeight.normal,
-          ),
+        const Text(
+          'Frame the label so both numbers are readable, then tap Capture. Or enter a code manually below.',
+          style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
         ),
         const SizedBox(height: 16),
 
@@ -577,46 +461,41 @@ class _ScannerView extends StatelessWidget {
           borderRadius: BorderRadius.circular(14),
           child: SizedBox(
             height: 240,
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final viewportSize = constraints.biggest;
-                final boxSize = _finderBoxSizeFor(viewportSize);
-                return Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    // No scanWindow here deliberately — filtering barcodes
-                    // by position happens in Dart (onDetect below), which we
-                    // can verify against real capture data. The native
-                    // scanWindow uses its own coordinate transform we can't
-                    // easily verify, and if it were even slightly wrong it
-                    // would silently drop every barcode before it ever
-                    // reaches onDetect.
-                    MobileScanner(
-                      controller: cameraController,
-                      onDetect: (capture) => onDetect(capture, viewportSize),
-                    ),
-                    // Finder overlay — the label must sit fully inside this
-                    // box before a scan is captured.
-                    Center(
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 150),
-                        width: boxSize.width,
-                        height: boxSize.height,
-                        decoration: BoxDecoration(
-                          border: Border.all(
-                            color: labelAligned
-                                ? AppColors.inStockGreen
-                                : AppColors.primaryBlue,
-                            width: 2,
-                          ),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                MobileScanner(controller: cameraController, onDetect: onDetect),
+                // Framing guide only — purely visual, nothing is gated on it.
+                Center(
+                  child: Container(
+                    width: 260,
+                    height: 150,
+                    decoration: BoxDecoration(
+                      border: Border.all(
+                        color: AppColors.primaryBlue,
+                        width: 2,
                       ),
+                      borderRadius: BorderRadius.circular(10),
                     ),
-                  ],
-                );
-              },
+                  ),
+                ),
+              ],
             ),
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        FilledButton.icon(
+          onPressed: onCapture,
+          style: FilledButton.styleFrom(
+            backgroundColor: AppColors.primaryBlue,
+            foregroundColor: Colors.white,
+            minimumSize: const Size.fromHeight(52),
+          ),
+          icon: const Icon(Icons.camera_alt),
+          label: const Text(
+            'Capture',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
           ),
         ),
         const SizedBox(height: 16),
@@ -629,8 +508,7 @@ class _ScannerView extends StatelessWidget {
           textInputAction: TextInputAction.search,
           onSubmitted: onLookup,
           decoration: InputDecoration(
-            prefixIcon:
-                const Icon(Icons.numbers, color: AppColors.textFaint),
+            prefixIcon: const Icon(Icons.numbers, color: AppColors.textFaint),
             hintText: 'Enter barcode manually…',
             suffixIcon: TextButton(
               onPressed: () => onLookup(barcodeController.text),
@@ -650,7 +528,11 @@ class _FrozenReview extends StatelessWidget {
     required this.image,
     required this.catalogController,
     required this.serialController,
+    required this.catalogFocus,
+    required this.serialFocus,
     required this.ocrRunning,
+    required this.detectedLines,
+    required this.onSelectLine,
     required this.onConfirm,
     required this.onRetake,
   });
@@ -658,130 +540,163 @@ class _FrozenReview extends StatelessWidget {
   final Uint8List? image;
   final TextEditingController catalogController;
   final TextEditingController serialController;
+  final FocusNode catalogFocus;
+  final FocusNode serialFocus;
   final bool ocrRunning;
+  final List<String> detectedLines;
+  final ValueChanged<String> onSelectLine;
   final VoidCallback onConfirm;
   final VoidCallback onRetake;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(14),
-            child: Stack(
-              children: [
-                SizedBox(
-                  height: 220,
-                  width: double.infinity,
-                  child: image != null
-                      ? Image.memory(image!, fit: BoxFit.cover)
-                      : Container(color: AppColors.surfaceAlt),
-                ),
-                Positioned(
-                  top: 10,
-                  right: 10,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: AppColors.inStockGreen,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.check, color: Colors.white, size: 16),
-                        SizedBox(width: 4),
-                        Text('Captured',
-                            style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700)),
-                      ],
-                    ),
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: Stack(
+            children: [
+              SizedBox(
+                height: 220,
+                width: double.infinity,
+                child: image != null
+                    ? Image.memory(image!, fit: BoxFit.cover)
+                    : Container(color: AppColors.surfaceAlt),
+              ),
+              Positioned(
+                top: 10,
+                right: 10,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.inStockGreen,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.check, color: Colors.white, size: 16),
+                      SizedBox(width: 4),
+                      Text(
+                        'Captured',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                if (ocrRunning)
-                  Positioned.fill(
-                    child: Container(
-                      color: Colors.black45,
-                      child: const Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            SizedBox(
-                              width: 28,
-                              height: 28,
-                              child: CircularProgressIndicator(
-                                color: Colors.white,
-                                strokeWidth: 3,
-                              ),
+              ),
+              if (ocrRunning)
+                Positioned.fill(
+                  child: Container(
+                    color: Colors.black45,
+                    child: const Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            width: 28,
+                            height: 28,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 3,
                             ),
-                            SizedBox(height: 10),
-                            Text(
-                              'Reading label…',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                              ),
+                          ),
+                          SizedBox(height: 10),
+                          Text(
+                            'Reading label…',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
-              ],
-            ),
+                ),
+            ],
           ),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          ocrRunning
+              ? 'Reading the label…'
+              : "Check these against the label — edit anything that's wrong.",
+          style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: catalogController,
+          focusNode: catalogFocus,
+          style: const TextStyle(color: AppColors.textPrimary),
+          decoration: const InputDecoration(labelText: 'Catalog number'),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: serialController,
+          focusNode: serialFocus,
+          style: const TextStyle(color: AppColors.textPrimary),
+          decoration: const InputDecoration(
+            labelText: 'Serial number (optional)',
+          ),
+        ),
+        if (detectedLines.isNotEmpty) ...[
           const SizedBox(height: 16),
-          Text(
-            ocrRunning
-                ? 'Reading the label…'
-                : "Check these against the label — edit anything that's wrong.",
-            style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+          const Text(
+            'Detected on label — tap to use (fills whichever field you tapped last):',
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
           ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: catalogController,
-            style: const TextStyle(color: AppColors.textPrimary),
-            decoration: const InputDecoration(labelText: 'Catalog number'),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: serialController,
-            style: const TextStyle(color: AppColors.textPrimary),
-            decoration:
-                const InputDecoration(labelText: 'Serial number (optional)'),
-          ),
-          const SizedBox(height: 20),
-          FilledButton(
-            onPressed: ocrRunning ? null : onConfirm,
-            style: FilledButton.styleFrom(
-              backgroundColor: AppColors.inStockGreen,
-              foregroundColor: Colors.white,
-              minimumSize: const Size.fromHeight(52),
-            ),
-            child: const Text(
-              'Looks good — continue',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-            ),
-          ),
-          const SizedBox(height: 12),
-          OutlinedButton(
-            onPressed: onRetake,
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppColors.textSecondary,
-              side: const BorderSide(color: AppColors.surfaceBorder),
-              minimumSize: const Size.fromHeight(48),
-            ),
-            child: const Text('Retake'),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final line in detectedLines)
+                ActionChip(
+                  label: Text(line),
+                  backgroundColor: AppColors.surfaceAlt,
+                  labelStyle: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 12,
+                  ),
+                  onPressed: () => onSelectLine(line),
+                ),
+            ],
           ),
         ],
-      ),
+        const SizedBox(height: 20),
+        FilledButton(
+          onPressed: ocrRunning ? null : onConfirm,
+          style: FilledButton.styleFrom(
+            backgroundColor: AppColors.inStockGreen,
+            foregroundColor: Colors.white,
+            minimumSize: const Size.fromHeight(52),
+          ),
+          child: const Text(
+            'Looks good — continue',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+          ),
+        ),
+        const SizedBox(height: 12),
+        OutlinedButton(
+          onPressed: onRetake,
+          style: OutlinedButton.styleFrom(
+            foregroundColor: AppColors.textSecondary,
+            side: const BorderSide(color: AppColors.surfaceBorder),
+            minimumSize: const Size.fromHeight(48),
+          ),
+          child: const Text('Retake'),
+        ),
+      ],
     );
   }
 }
@@ -795,16 +710,15 @@ class _ReadoutRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Text(label,
-            style: const TextStyle(
-                color: AppColors.textSecondary, fontSize: 13)),
+        Text(
+          label,
+          style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+        ),
         const Spacer(),
         Text(
           value ?? 'Not detected',
           style: TextStyle(
-            color: value != null
-                ? AppColors.textPrimary
-                : AppColors.textFaint,
+            color: value != null ? AppColors.textPrimary : AppColors.textFaint,
             fontSize: 13,
             fontWeight: FontWeight.w600,
           ),
@@ -834,23 +748,25 @@ class _DuplicateNotice extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Icon(Icons.info_outline,
-              color: AppColors.lowOrange, size: 40),
+          const Icon(Icons.info_outline, color: AppColors.lowOrange, size: 40),
           const SizedBox(height: 16),
           Text(
             'Already logged',
             textAlign: TextAlign.center,
             style: const TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 18,
-                fontWeight: FontWeight.w700),
+              color: AppColors.textPrimary,
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+            ),
           ),
           const SizedBox(height: 8),
           Text(
             'Serial $serial is already recorded on ${product.name}.',
             textAlign: TextAlign.center,
             style: const TextStyle(
-                color: AppColors.textSecondary, fontSize: 14),
+              color: AppColors.textSecondary,
+              fontSize: 14,
+            ),
           ),
           const Spacer(),
           FilledButton(
@@ -912,7 +828,9 @@ class _SerialConfirm extends StatelessWidget {
                 Text(
                   '${product.category}  ·  ${product.location}',
                   style: const TextStyle(
-                      color: AppColors.textFaint, fontSize: 13),
+                    color: AppColors.textFaint,
+                    fontSize: 13,
+                  ),
                 ),
                 const SizedBox(height: 12),
                 _ReadoutRow(label: 'Serial number', value: serial),
@@ -920,7 +838,9 @@ class _SerialConfirm extends StatelessWidget {
                 Text(
                   'Current stock: ${product.quantity} ${product.unit}',
                   style: const TextStyle(
-                      color: AppColors.textSecondary, fontSize: 14),
+                    color: AppColors.textSecondary,
+                    fontSize: 14,
+                  ),
                 ),
               ],
             ),
@@ -976,8 +896,7 @@ class _QuantityAdjuster extends StatefulWidget {
 }
 
 class _QuantityAdjusterState extends State<_QuantityAdjuster> {
-  late final _controller =
-      TextEditingController(text: widget.qty.toString());
+  late final _controller = TextEditingController(text: widget.qty.toString());
 
   @override
   void dispose() {
@@ -988,8 +907,9 @@ class _QuantityAdjusterState extends State<_QuantityAdjuster> {
   void _set(int value) {
     final clamped = value.clamp(1, 9999);
     _controller.text = clamped.toString();
-    _controller.selection =
-        TextSelection.collapsed(offset: _controller.text.length);
+    _controller.selection = TextSelection.collapsed(
+      offset: _controller.text.length,
+    );
     widget.onQtyChanged(clamped);
   }
 
@@ -1023,13 +943,17 @@ class _QuantityAdjusterState extends State<_QuantityAdjuster> {
                 Text(
                   '${p.category}  ·  ${p.location}',
                   style: const TextStyle(
-                      color: AppColors.textFaint, fontSize: 13),
+                    color: AppColors.textFaint,
+                    fontSize: 13,
+                  ),
                 ),
                 const SizedBox(height: 12),
                 Text(
                   'Current stock: ${p.quantity} ${p.unit}',
                   style: const TextStyle(
-                      color: AppColors.textSecondary, fontSize: 14),
+                    color: AppColors.textSecondary,
+                    fontSize: 14,
+                  ),
                 ),
               ],
             ),
@@ -1050,7 +974,9 @@ class _QuantityAdjusterState extends State<_QuantityAdjuster> {
           Row(
             children: [
               _StepButton(
-                  icon: Icons.remove, onTap: () => _set(widget.qty - 1)),
+                icon: Icons.remove,
+                onTap: () => _set(widget.qty - 1),
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: TextField(
@@ -1075,8 +1001,7 @@ class _QuantityAdjusterState extends State<_QuantityAdjuster> {
                 ),
               ),
               const SizedBox(width: 12),
-              _StepButton(
-                  icon: Icons.add, onTap: () => _set(widget.qty + 1)),
+              _StepButton(icon: Icons.add, onTap: () => _set(widget.qty + 1)),
             ],
           ),
           const SizedBox(height: 8),
@@ -1084,7 +1009,9 @@ class _QuantityAdjusterState extends State<_QuantityAdjuster> {
             'New total will be: ${p.quantity + widget.qty} ${p.unit}',
             textAlign: TextAlign.center,
             style: const TextStyle(
-                color: AppColors.textSecondary, fontSize: 13),
+              color: AppColors.textSecondary,
+              fontSize: 13,
+            ),
           ),
 
           const Spacer(),
@@ -1098,8 +1025,7 @@ class _QuantityAdjusterState extends State<_QuantityAdjuster> {
             ),
             child: Text(
               'Add ${widget.qty} to stock',
-              style: const TextStyle(
-                  fontSize: 16, fontWeight: FontWeight.w700),
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
             ),
           ),
           const SizedBox(height: 12),
