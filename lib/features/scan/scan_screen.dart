@@ -13,8 +13,16 @@ import '../../data/providers/repository_providers.dart';
 import '../inventory/product_detail_screen.dart';
 
 /// Size of the on-screen finder box the label must be aligned inside of
-/// before a capture is taken.
-const _finderBoxSize = Size(200, 120);
+/// before a capture is taken, as a fraction of the camera viewport.
+///
+/// Sized generously (most of the viewport) because real equipment labels
+/// often carry two separate barcodes (catalog + serial) spaced apart on the
+/// nameplate — a tight box only leaves room for one of them to be legible
+/// at once, silently dropping the serial.
+Size _finderBoxSizeFor(Size viewportSize) => Size(
+      viewportSize.width * 0.9,
+      viewportSize.height * 0.78,
+    );
 
 /// Once the label's barcodes are fully inside the finder box, how long that
 /// alignment must hold (debounce against a single blurry/transient frame)
@@ -154,10 +162,11 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
     // Only barcodes that are themselves fully inside the finder box count —
     // this ignores stray labels elsewhere in frame and only fires once the
     // scanned label is actually aligned where the user was told to put it.
+    final boxSize = _finderBoxSizeFor(viewportSize);
     final box = Rect.fromCenter(
       center: viewportSize.center(Offset.zero),
-      width: _finderBoxSize.width,
-      height: _finderBoxSize.height,
+      width: boxSize.width,
+      height: boxSize.height,
     );
     final inBox = <Barcode>[
       for (final code in codes)
@@ -452,6 +461,7 @@ class _ScannerView extends StatelessWidget {
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final viewportSize = constraints.biggest;
+                final boxSize = _finderBoxSizeFor(viewportSize);
                 return Stack(
                   fit: StackFit.expand,
                   children: [
@@ -459,8 +469,8 @@ class _ScannerView extends StatelessWidget {
                       controller: cameraController,
                       scanWindow: Rect.fromCenter(
                         center: viewportSize.center(Offset.zero),
-                        width: _finderBoxSize.width,
-                        height: _finderBoxSize.height,
+                        width: boxSize.width,
+                        height: boxSize.height,
                       ),
                       onDetect: (capture) => onDetect(capture, viewportSize),
                     ),
@@ -469,8 +479,8 @@ class _ScannerView extends StatelessWidget {
                     Center(
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 150),
-                        width: _finderBoxSize.width,
-                        height: _finderBoxSize.height,
+                        width: boxSize.width,
+                        height: boxSize.height,
                         decoration: BoxDecoration(
                           border: Border.all(
                             color: labelAligned
