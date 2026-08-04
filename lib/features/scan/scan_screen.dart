@@ -137,6 +137,26 @@ List<String> _numericCandidates(RecognizedText text) {
   return candidates;
 }
 
+/// Digit-containing lines ranked by on-image size (tallest bounding box
+/// first) — a proxy for font size / visual prominence. The catalog number
+/// is often simply the biggest writing on the label, not something with an
+/// explicit "CATALOG #" caption next to it, so this is used as the primary
+/// signal for catalog specifically (serial numbers are reliably captioned
+/// with "S/N"/"Serial No." so the caption-based guess stays primary there).
+List<String> _sizeRankedCandidates(RecognizedText text) {
+  final seen = <String>{};
+  final entries = <MapEntry<String, double>>[];
+  for (final block in text.blocks) {
+    for (final line in block.lines) {
+      final t = line.text.trim();
+      if (t.isEmpty || !_looksLikeValue.hasMatch(t)) continue;
+      if (seen.add(t)) entries.add(MapEntry(t, line.boundingBox.height));
+    }
+  }
+  entries.sort((a, b) => b.value.compareTo(a.value));
+  return [for (final e in entries) e.key];
+}
+
 /// Up to [max] dropdown options for a field: the heuristic's guess first
 /// (if any), then other plausible numeric candidates found on the label.
 List<String> _buildOptions(String? guess, List<String> pool, {int max = 4}) {
@@ -253,7 +273,16 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
 
       final guess = _guessCatalogAndSerial(recognized);
       final pool = _numericCandidates(recognized);
-      final catalogOptions = _buildOptions(guess.catalog, pool);
+      final bySize = _sizeRankedCandidates(recognized);
+
+      // Catalog: default to the largest writing on the label, then offer
+      // the caption-based guess and other candidates as alternates.
+      final catalogOptions = _buildOptions(
+        bySize.firstOrNull ?? guess.catalog,
+        [...bySize, if (guess.catalog != null) guess.catalog!, ...pool],
+      );
+      // Serial: captions like "S/N"/"Serial No." are reliable, keep that
+      // as the primary signal.
       final serialOptions = _buildOptions(guess.serial, pool);
 
       if (mounted) {
